@@ -16,22 +16,22 @@ The EventLoop comes with several utilities for managing the separate process.
 The EventLoop also comes with some utilities to add commands to be processed and a way to handle results.
 
   * add_event(target, args, kwargs, ...) - Add an event to be executed in a separate process.
-  * add_output_handler(function) - Function that takes in the event with results after the event has been executed.
+  * add_output_handler(function) - Function that takes in an EventResult after the event has been executed.
     
 These functions will be explained more below
 
 ## How it works
 The EventLoop works by creating a Process and a Thread. The Process takes the 
-Event from a queue and runs the function. Once the Event is complete and has a result the event is put on a result 
-Queue. The Thread takes the Event from the result Queue and passes the event to all of the output_handlers in the 
-EventLoop. If one of the output_handlers returns True the event will stop propagating to the other output_handlers.
+Event from a queue and runs the function. Once the Event is complete, an EventResult is put on a result Queue. 
+The Thread takes the EventResult from the result Queue and passes it to all of the output_handlers in the EventLoop. 
+If one of the output_handlers returns True the event result will stop propagating to the other output_handlers.
 
 Because of locking mechanisms in the Queue and message passing between processes this will be slow. You will probably 
 only use this for concurrency. This is usefully for non-IO concurrency where Threads may impact performance.
 
 I created this library as a test to understand how multiprocessing works. I am attempting to use multiprocessing for 
 tcp communication and parsing data while passing the parsed data back to the main process which is running a GUI.
-Concurrency and performance are vital for this GUI.
+Concurrency and performance is vital for this GUI.
 
 ## Example
 
@@ -44,8 +44,8 @@ def add_one(value):
     
 results = []
 
-def save_results(event):
-    results.append(event.results)
+def save_results(event_result):
+    results.append(event_result.results)
     
 with mp_event_loop.EventLoop(output_handlers=save_results) as loop:
     loop.add_event(add_one, args=(1,))
@@ -87,11 +87,11 @@ class MyEvent(mp_event_loop.Event):
     #         self.error = ValueError("Invalid target (%s) given! Type %s" % (repr(self.target), str(type(self.target))))
 
 
-def print_results(event):
-    print(event.results)
+def print_results(event_result):
+    print(event_result.results)
 
 
-loop = mp_event_loop.EventLoop()
+loop = mp_event_loop.EventLoop(output_handlers=print_results)
 
 loop.start()
 
@@ -126,15 +126,15 @@ class MyEvent(mp_event_loop.Event):
         return value
         
         
-def print_my_event(event):
-    if isinstance(event, MyEvent):
-        print('My Event', event.results)
+def print_my_event(event_result):
+    if isinstance(event_result.event, MyEvent):
+        print('My Event', event_result.results)
         return True  # Stop running the other output_handlers
     else:
         print("Not My Event")
 
-def print_event(event):
-    print("Normal Event", event.results)
+def print_event(event_result):
+    print("Normal Event", event_result.results)
     
     
 def add_one(value):
@@ -160,7 +160,7 @@ with mp_event_loop.EventLoop(output_handlers=[print_my_event, print_event]) as l
 ```
 
 
-## pickling
+## Pickling
 If pickling is annoying you then you can use a different multiprocessing library.
 
 The EventLoop uses 4 class variables to create the proper Process and Thread objects
@@ -189,3 +189,14 @@ mp_event_loop.EventLoop.queue_class = mp.JoinableQueue
 mp_event_loop.EventLoop.event_loop_class = mp.Process
 mp_event_loop.EventLoop.consumer_loop_class = threading.Thread
 ```
+
+### Pickling Problems
+My goal was to extend this library to work with async/await. Unfortunately, coroutines and generators cannot be 
+pickled. I created an async_event_loop.AsyncEventLoop just in case this becomes possible in the future. 
+
+In addition to this generators cannot be pickled. I wanted to create another event loop where function with the yield
+statement would allow other Events to run. While generators cannot be pickled, it is possible to create a class with
+ _\_iter_\_ and _\_next_\_ methods which can be pickled. I created an event loop (iter_event_loop.IterEventLoop)
+which will collect iterators and interleave iterators. After _\_next_\_ is called a different iterator will execute 
+adding more concurrency. This only makes it so long running iterators do not take up all of the processing time and 
+lets other iterator events run in between iterations.
