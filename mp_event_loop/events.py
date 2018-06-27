@@ -1,6 +1,18 @@
 
 
-__all__ = ['Event', 'CacheEvent']
+__all__ = ['EventResults', 'Event', 'CacheEvent']
+
+
+class EventResults(object):
+    """Results object."""
+    def __init__(self, results=None, error=None, event=None):
+        self.results = results
+        self.error = error
+        self.event = event
+        self.event_key = None
+
+        if self.event is not None:
+            self.event_key = self.event.event_key
 
 
 class Event(object):
@@ -32,14 +44,18 @@ class Event(object):
     def exec_(self):
         """Get the command and run it"""
         # Get the command to run
+        results = None
+        error = None
         if callable(self.target):
             # Run the command
             try:
-                self.results = self.run()
+                results = self.run()
             except Exception as err:
-                self.error = err
+                error = err
         else:
-            self.error = ValueError("Invalid target (%s) given! Type %s" % (repr(self.target), str(type(self.target))))
+            error = ValueError("Invalid target (%s) given! Type %s" % (repr(self.target), str(type(self.target))))
+
+        return EventResults(results, error, self)
 
     def __getstate__(self):
         """Return the state for pickling."""

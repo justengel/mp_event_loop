@@ -25,6 +25,9 @@ class EventLoop(object):
     event_loop_class = mp.Process
     consumer_loop_class = threading.Thread
 
+    run_event_loop = staticmethod(run_event_loop)
+    run_consumer_loop = staticmethod(run_consumer_loop)
+
     def __init__(self, name='main', event_queue=None, consumer_queue=None, output_handlers=None, has_results=True):
         if event_queue is None:
             event_queue = self.queue_class()
@@ -68,22 +71,23 @@ class EventLoop(object):
         be called.
 
         Args:
+            index (int): Index position to insert the handler at.
             handler (function/method): Returns True or False to stop propagating the event results. Must take one event
                 argument.
         """
         self.output_handlers.insert(index, handler)
 
-    def process_output(self, event):
+    def process_output(self, event_results):
         """Override this function to handle results.
 
         Args:
-            event (mp_event_loop.Event): Event that has results or error
+            event_results (mp_event_loop.EventResults): Event that has results or error
         """
-        if event.error:
-            print_exception(event.error)
+        if event_results.error:
+            print_exception(event_results.error)
         else:
             for handler in self.output_handlers:
-                if handler(event):
+                if handler(event_results):
                     break
 
     # ========== Event Management ==========
@@ -137,7 +141,7 @@ class EventLoop(object):
 
         # Create the separate Process
         self.alive_event.set()
-        self.event_process = self.event_loop_class(name="EventLoop-" + self.name, target=run_event_loop,
+        self.event_process = self.event_loop_class(name="EventLoop-" + self.name, target=self.run_event_loop,
                                                    args=(self.alive_event, self.event_queue, self.consumer_queue))
         self.event_process.daemon = True
         self.event_process.start()
@@ -145,7 +149,8 @@ class EventLoop(object):
         atexit.register(self.stop)
 
         if self.has_results:
-            self.consumer_process = self.consumer_loop_class(name="ConsumerLoop-" + self.name, target=run_consumer_loop,
+            self.consumer_process = self.consumer_loop_class(name="ConsumerLoop-" + self.name,
+                                                             target=self.run_consumer_loop,
                                                              args=(self.alive_event, self.consumer_queue,
                                                                    self.process_output))
             self.consumer_process.daemon = True
@@ -161,9 +166,11 @@ class EventLoop(object):
             atexit.unregister(self.stop)
         except:
             pass
-        stop_event_loop(self.alive_event,
-                        self.event_queue, self.consumer_queue,
-                        self.event_process, self.consumer_process)
+        if self.consumer_process is None:
+            stop_event_loop(self.alive_event, self.event_queue, self.event_process)
+        else:
+            stop_event_loop(self.alive_event, self.event_queue, self.event_process,
+                            self.consumer_queue, self.consumer_process)
 
     def wait(self):
         """Wait for the event queue and consumer queue to finish processing."""
@@ -184,9 +191,13 @@ class EventLoop(object):
         self.wait()
         self.stop()
 
+    def close(self):
+        """Close the event loop."""
+        self.stop()
+
     def __del__(self):
         try:
-            self.stop()
+            self.close()
         except:
             pass
 

@@ -1,6 +1,6 @@
 from .mp_functions import print_exception, is_parent_process_alive, mark_task_done,\
     stop_event_loop, run_event_loop, run_consumer_loop
-from .events import Event, CacheEvent
+from .events import EventResults, Event, CacheEvent
 from .event_loop import EventLoop
 
 from multiprocessing import freeze_support

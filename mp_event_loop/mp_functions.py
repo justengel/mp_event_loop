@@ -2,7 +2,7 @@ import os
 import sys
 import traceback
 
-from .events import Event
+from .events import EventResults, Event
 
 try:
     import psutil
@@ -13,7 +13,8 @@ except ImportError as err:
     psutil = None
 
 
-__all__ = ['is_parent_process_alive', 'print_exception', 'stop_event_loop', 'run_event_loop', 'run_consumer_loop']
+__all__ = ['print_exception', 'is_parent_process_alive', 'mark_task_done', 'LoopQueueSize',
+           'stop_event_loop', 'run_event_loop', 'run_consumer_loop']
 
 
 STOP_EXECUTION = "##=STOP EXECUTION===##"
@@ -43,14 +44,42 @@ def mark_task_done(que):
         pass
 
 
-def stop_event_loop(alive_event, event_queue=None, consumer_queue=None, event_process=None, consumer_process=None):
+class LoopQueueSize(object):
+    """Iterator to iterate until the alive_event is cleared or the parent process dies then iterate the number of
+    queue.qsize().
+    """
+    def __init__(self, alive_event, queue):
+        self.queue = queue
+        self.alive_event = alive_event
+        self.countdown = -1
+
+    def __iter__(self):
+        self.countdown = -1
+        return self
+
+    def next(self):
+        return self.__next__()
+
+    def __next__(self):
+        if self.countdown > 0:
+            self.countdown -= 1
+        else:
+            should_iter = self.alive_event.is_set() and is_parent_process_alive()
+            if not should_iter:
+                self.countdown = self.queue.qsize()
+        if self.countdown == 0:
+            raise StopIteration
+        return "Continue"
+
+
+def stop_event_loop(alive_event, event_queue=None, event_process=None, consumer_queue=None, consumer_process=None):
     """Stop the event loop and consumer loop.
 
     Args:
         alive_event (multiprocessing.Event): Event to signal that the process is closing and exit the loop.
         event_queue (multiprocessing.Queue/multiprocessing.JoinableQueue)[None]: Queue of events.
-        consumer_queue (multiprocessing.Queue/multiprocessing.JoinableQueue)[None]: Queue of results to be processed.
         event_process (Process/Thread)[None]: Multiprocessing process to join and quit
+        consumer_queue (multiprocessing.Queue/multiprocessing.JoinableQueue)[None]: Queue of results to be processed.
         consumer_process (Thread/Process)[None]: Thread to join and quit. (Thread that consumes)
     """
     try:
@@ -89,25 +118,13 @@ def run_event_loop(alive_event, event_queue, consumer_queue=None):
             to the thread.
     """
     # ===== Run the logging event loop =====
-    while alive_event.is_set() and is_parent_process_alive():
+    for _ in LoopQueueSize(alive_event, event_queue):  # Iterate until a stop case then iterate the queue.qsize
         event = event_queue.get()
         if isinstance(event, Event):
             # Run the event
-            event.exec_()
+            event_results = event.exec_()
             if event.has_output:
-                consumer_queue.put(event)
-
-        mark_task_done(event_queue)
-
-    # ===== Finish running the rest of the events before closing =====
-    # Only handle the number of events at this point. Otherwise could run forever if queue.put is fast enough.
-    for _ in range(event_queue.qsize()):
-        event = event_queue.get()
-        if isinstance(event, Event):
-            # Run the command
-            event.exec_()
-            if event.has_output:
-                consumer_queue.put(event)
+                consumer_queue.put(event_results)
 
         mark_task_done(event_queue)
 
@@ -123,21 +140,11 @@ def run_consumer_loop(alive_event, consumer_queue, process_output):
             to the thread.
         process_output (callable): Function/method to consume the events.
     """
-    while alive_event.is_set() and is_parent_process_alive():
-        event = consumer_queue.get()
-        if isinstance(event, Event):
+    for _ in LoopQueueSize(alive_event, consumer_queue):
+        event_results = consumer_queue.get()
+        if isinstance(event_results, EventResults):
             # Process the output
-            process_output(event)
-
-        mark_task_done(consumer_queue)
-
-    # ===== Finish running the rest of the events before closing =====
-    # Only handle the number of events at this point. Otherwise could run forever if queue.put is fast enough.
-    for _ in range(consumer_queue.qsize()):
-        event = consumer_queue.get()
-        if isinstance(event, Event):
-            # Process the output
-            process_output(event)
+            process_output(event_results)
 
         mark_task_done(consumer_queue)
 
