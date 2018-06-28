@@ -41,6 +41,7 @@ class EventLoop(object):
 
         self.name = str(name)
         self.has_results = has_results
+        self._needs_to_close = False
         self.cache = {}
 
         self.alive_event = self.alive_event_class()
@@ -91,19 +92,23 @@ class EventLoop(object):
                     break
 
     # ========== Event Management ==========
-    def add_event(self, target=None, args=None, kwargs=None, has_output=None, event_key=None,
-                  cache=False, re_register=False):
+    def add_event(self, target, *args, has_output=None, event_key=None, cache=False, re_register=False, **kwargs):
         """Add an event to be run in a separate process.
 
         Args:
             target (function/method/callable/Event): Event or callable to run in a separate process.
-            args (tuple): Arguments to pass into the target function.
-            kwargs (dict): Keyword arguments to pass into the target function.
+            *args (tuple): Arguments to pass into the target function.
             has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
             event_key (str)[None]: Key to identify the event or output result.
             cache (bool) [False]: If the target object should be cached.
             re_register (bool)[False]: Forcibly register this object in the other process.
+            **kwargs (dict): Keyword arguments to pass into the target function.
+            args (tuple)[None]: Keyword args argument.
+            kwargs (dict)[None]: Keyword kwargs argument.
         """
+        args = kwargs.pop('args', args)
+        kwargs = kwargs.pop('kwargs', kwargs)
+
         if cache and isinstance(target, CacheEvent):
             event = target
         elif cache:
@@ -116,7 +121,7 @@ class EventLoop(object):
 
             if has_output is None:
                 has_output = True
-            event = CacheEvent(target, args, kwargs, has_output, event_key,
+            event = CacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
                                re_register=re_register, cache=self.cache)
 
         elif isinstance(target, Event):
@@ -124,7 +129,7 @@ class EventLoop(object):
         else:
             if has_output is None:
                 has_output = True
-            event = Event(target, args, kwargs, has_output=has_output, event_key=event_key)
+            event = Event(target, *args, **kwargs, has_output=has_output, event_key=event_key)
 
         self.event_queue.put(event)
 
@@ -132,8 +137,6 @@ class EventLoop(object):
     def is_running(self):
         """Return if the event loop is running."""
         return self.alive_event.is_set()
-
-    is_alive = is_running
 
     def start(self):
         """Start running the separate process which runs an event loop."""
@@ -143,18 +146,59 @@ class EventLoop(object):
         self.alive_event.set()
         self.event_process = self.event_loop_class(name="EventLoop-" + self.name, target=self.run_event_loop,
                                                    args=(self.alive_event, self.event_queue, self.consumer_queue))
-        self.event_process.daemon = True
+        self.event_process.daemon = False
         self.event_process.start()
 
-        atexit.register(self.stop)
-
+        # Consumer Thread
         if self.has_results:
             self.consumer_process = self.consumer_loop_class(name="ConsumerLoop-" + self.name,
                                                              target=self.run_consumer_loop,
                                                              args=(self.alive_event, self.consumer_queue,
                                                                    self.process_output))
-            self.consumer_process.daemon = True
+            self.consumer_process.daemon = False
             self.consumer_process.start()
+
+        self._needs_to_close = True
+        atexit.register(self.stop)
+
+    def run(self, events=None, output_handlers=None):
+        """Run events through the main global loop."""
+        # Add the output handlers
+        if output_handlers:
+            if not isinstance(output_handlers, (list, tuple)):
+                self.add_output_handler(output_handlers)
+            else:
+                for hndlr in output_handlers:
+                    self.add_output_handler(hndlr)
+
+        # Add the events
+        if events:
+            if not isinstance(events, (list, tuple)):
+                self.add_event(events)
+            else:
+                for event in events:
+                    if isinstance(event, (list, tuple)):
+                        self.add_event(*event)
+                    elif isinstance(event, dict):
+                        self.add_event(**event)
+                    else:
+                        self.add_event(event)
+
+        # Start running
+        if not self.is_running():
+            self.start()
+
+    def run_until_complete(self, events=None, output_handlers=None):
+        """Run until all of the events are complete"""
+        self.run(events=events, output_handlers=output_handlers)
+
+        self.wait()
+        self.stop()
+
+    def wait(self):
+        """Wait for the event queue and consumer queue to finish processing."""
+        self.event_queue.join()
+        self.consumer_queue.join()
 
     def stop(self):
         """Stop running the process.
@@ -163,33 +207,21 @@ class EventLoop(object):
             This will also stop the logging
         """
         try:
+            self._needs_to_close = False
             atexit.unregister(self.stop)
         except:
             pass
-        if self.consumer_process is None:
-            stop_event_loop(self.alive_event, self.event_queue, self.event_process)
-        else:
-            stop_event_loop(self.alive_event, self.event_queue, self.event_process,
-                            self.consumer_queue, self.consumer_process)
 
-    def wait(self):
-        """Wait for the event queue and consumer queue to finish processing."""
-        self.event_queue.join()
-        self.consumer_queue.join()
+        # If has_results clear and join the consumer queue and process
+        kwargs = {}
+        if self.has_results:
+            kwargs['consumer_queue'] = self.consumer_queue
+            kwargs['consumer_process'] = self.consumer_process
+            self.consumer_process = None
 
-    def run_until_complete(self, events=None):
-        """Run until all of the events are complete"""
-        if events is None:
-            events = []
-
-        if not self.is_running():
-            self.start()
-
-        for event in events:
-            self.event_queue.put(event)
-
-        self.wait()
-        self.stop()
+        # Stop and clear the process and queue variables
+        stop_event_loop(self.alive_event, self.event_queue, self.event_process, **kwargs)
+        self.event_process = None
 
     def close(self):
         """Close the event loop."""
@@ -197,7 +229,8 @@ class EventLoop(object):
 
     def __del__(self):
         try:
-            self.close()
+            if self._needs_to_close:
+                self.close()
         except:
             pass
 

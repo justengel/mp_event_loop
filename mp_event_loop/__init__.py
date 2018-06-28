@@ -55,3 +55,104 @@ def use(lib):
             EventLoop.event_loop_class = lib.Thread
         except AttributeError:
             print_exception(err, "Not able to change the event_loop_class (Process) using the library " + repr(lib))
+
+
+# ========== Global Event Loop Functions ==========
+DefaultEventLoop = EventLoop
+GLOBAL_NAME = 'Global Event Loop'
+__loop__ = None
+
+
+def get_event_loop(name=None, event_queue=None, consumer_queue=None, output_handlers=None, has_results=True):
+    """Return the global event loop. If it does not exist create it. It will still need to be started."""
+    if name is None:
+        name = GLOBAL_NAME
+
+    global __loop__
+    if __loop__ is None:
+        __loop__ = DefaultEventLoop(name=name, event_queue=event_queue, consumer_queue=consumer_queue,
+                                    output_handlers=output_handlers, has_results=has_results)
+
+    return __loop__
+
+
+def add_output_handler(handler):
+    """Add output handlers into the main global loop."""
+    global __loop__
+    if __loop__ is None:
+        __loop__ = DefaultEventLoop(GLOBAL_NAME)
+
+    return __loop__.add_output_handler(handler)
+
+
+def insert_output_handler(index, handler):
+    """Insert output handlers into the main global loop."""
+    global __loop__
+    if __loop__ is None:
+        __loop__ = DefaultEventLoop(GLOBAL_NAME)
+
+    return __loop__.insert_output_handler(index, handler)
+
+
+def add_event(*args, start_loop=True, **kwargs):
+    """Add an event to the main global loop to be run in a separate process."""
+    global __loop__
+    if __loop__ is None:
+        __loop__ = DefaultEventLoop(GLOBAL_NAME)
+
+    return __loop__.add_event(*args, **kwargs)
+
+
+def is_running():
+    """Return if the main global loop is running."""
+    global __loop__
+    return __loop__ is not None and __loop__.is_running()
+
+
+def start():
+    """Start running the main global loop."""
+    global __loop__
+    if __loop__ is None:
+        __loop__ = DefaultEventLoop(GLOBAL_NAME)
+
+    if not __loop__.is_running():
+        __loop__.start()
+
+
+def run(events=None, output_handlers=None):
+    """Run events through the main global loop."""
+    global __loop__
+    if __loop__ is None:
+        __loop__ = DefaultEventLoop(GLOBAL_NAME)
+
+    return __loop__.run(events=events, output_handlers=output_handlers)
+
+
+def run_until_complete(events=None, output_handlers=None):
+    """Wait for the main global loop."""
+    global __loop__
+    if __loop__ is None:
+        __loop__ = DefaultEventLoop(GLOBAL_NAME)
+
+    return __loop__.run_until_complete(events=events, output_handlers=output_handlers)
+
+
+def wait():
+    """Wait for the main global loop."""
+    global __loop__
+    if __loop__ is not None:
+        __loop__.wait()
+
+
+def stop():
+    """Stop the main global loop from running."""
+    global __loop__
+    if __loop__ is not None:
+        __loop__.stop()
+
+
+def close():
+    """Close the main global loop."""
+    global __loop__
+    if __loop__ is not None:
+        __loop__.close()

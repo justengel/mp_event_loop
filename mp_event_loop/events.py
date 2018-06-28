@@ -17,16 +17,21 @@ class EventResults(object):
 
 class Event(object):
     """Basic event to run a function."""
-    def __init__(self, target=None, args=None, kwargs=None, has_output=True, event_key=None):
+    def __init__(self, target, *args, has_output=True, event_key=None, **kwargs):
         """Create the event.
 
         Args:
             target (function/method/callable): Object to run.
-            args (tuple): Arguments to pass into the target function.
-            kwargs (dict): Keyword arguments to pass into the target function.
+            *args (tuple): Arguments to pass into the target function.
             has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
             event_key (str)[None]: Key to identify the event or output result.
+            **kwargs (dict): Keyword arguments to pass into the target function.
+            args (tuple)[None]: Keyword args argument.
+            kwargs (dict)[None]: Keyword kwargs argument.
         """
+        args = kwargs.pop('args', args)
+        kwargs = kwargs.pop('kwargs', kwargs)
+
         self.target = target
         self.args = args or tuple()
         self.kwargs = kwargs or {}
@@ -113,18 +118,19 @@ class CacheEvent(Event):
         """Find and return the global process object."""
         return self.cache.get(name, name)
 
-    def __init__(self, target=None, args=None, kwargs=None, has_output=True, event_key=None, re_register=False,
-                 cache=None):
+    def __init__(self, target, *args, has_output=True, event_key=None, re_register=False, cache=None, **kwargs):
         """Create the event.
 
         Args:
             target (function/method/callable): Object to run.
-            args (tuple): Arguments to pass into the target function.
-            kwargs (dict): Keyword arguments to pass into the target function.
+            *args (tuple): Arguments to pass into the target function.
             has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
             event_key (str)[None]: Key to identify the event or output result.
             re_register (bool)[False]: Forcibly register this object in the other process.
             cache (dict)[None]: Specify a cache that you want to use.
+            **kwargs (dict): Keyword arguments to pass into the target function.
+            args (tuple)[None]: Keyword args argument.
+            kwargs (dict)[None]: Keyword kwargs argument.
         """
         if cache is None:
             cache = self.__class__.CLASS_CACHE
@@ -150,7 +156,7 @@ class CacheEvent(Event):
             self.register_process_object(obj, self.object_id)
             self.register.append([self.object_id, obj])  # Name, object
 
-        super().__init__(target=target, args=args, kwargs=kwargs, has_output=has_output, event_key=event_key)
+        super().__init__(target, *args, **kwargs, has_output=has_output, event_key=event_key)
 
     def __getstate__(self):
         """Return the state for pickling.

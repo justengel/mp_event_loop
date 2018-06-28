@@ -1,17 +1,24 @@
 # mp_event_loop
 
-Library for long running multiprocessing event loops.
+Library for long running multiprocessing event loops. This library provides an EventLoop that will run events in a 
+separate process.
 
-This library provides an EventLoop that will run events in a separate process.
+
+    Warning:
+    This library does not work with async/await.
+    Coroutines and generators cannot be pickled which prevents them from being run in a separate process.
+
 
 The EventLoop comes with several utilities for managing the separate process.
 
-  * start() - Start the event loop
-  * stop () - Stop the event loop
-  * wait() - Wait for the current events to finish
-  * run_until_complete(events=None) - Run the given events and wait until they are finished
   * is_running() - Return if the separate process is running
-  * _\_enter_\_ and _\_exit_\_ - works as a context manager using the `with` statement    
+  * start() - Start the event loop
+  * run(events=None, output_handlers=None) - Add the output handlers and run the events
+  * run_until_complete(events=None, output_handlers=None) - Run the given events and wait until they are finished
+  * wait() - Wait for the current events to finish
+  * stop() - Stop the event loop
+  * close() - Close the event loop
+  * _\_enter_\_ and _\_exit_\_ - works as a context manager and allows use of the `with` statement    
 
 The EventLoop also comes with some utilities to add commands to be processed and a way to handle results.
 
@@ -19,6 +26,65 @@ The EventLoop also comes with some utilities to add commands to be processed and
   * add_output_handler(function) - Function that takes in an EventResult after the event has been executed.
     
 These functions will be explained more below
+
+
+## Quickstart
+
+    pip install mp_event_loop
+    
+```python
+import mp_event_loop
+
+
+def add_vals(value, value2=1):
+    return value + value2
+    
+    
+results = []
+
+def save_results(event_result):
+    results.append(event_result.results)
+
+
+with mp_event_loop.get_event_loop(output_handlers=save_results):
+    mp_event_loop.add_event(add_vals, 2)
+    mp_event_loop.add_event(add_vals, 3, 4)
+    mp_event_loop.add_event(add_vals, 5, value2=6)
+    mp_event_loop.add_event(add_vals, args=(7,), kwargs={'value2': 8})
+    
+# with context manager waits for events and event results to finish until it exits
+assert results == [3, 7, 11, 15]
+summed = sum(results)
+assert summed == 36
+print("Results summed:", summed)
+# Results summed: 36
+```
+
+Alternative approach
+```python
+import mp_event_loop as mp_event_loop
+
+def add_one(value):
+    return value + 1
+    
+    
+results = []
+
+def save_results(event_result):
+    results.append(event_result.results)
+    
+mp_event_loop.run([{'target': add_one, 'args': (1,)},
+                   {'target': add_one, 'args': (2,)},
+                   {'target': add_one, 'args': (3,)},
+                  ], save_results)
+                  
+mp_event_loop.add_event(add_one, 4)
+
+mp_event_loop.wait()
+
+print("Results summed:", sum(results))
+# Results summed: 14
+```
 
 ## How it works
 The EventLoop works by creating a Process and a Thread. The Process takes the 
@@ -30,8 +96,8 @@ Because of locking mechanisms in the Queue and message passing between processes
 only use this for concurrency. This is usefully for non-IO concurrency where Threads may impact performance.
 
 I created this library as a test to understand how multiprocessing works. I am attempting to use multiprocessing for 
-tcp communication and parsing data while passing the parsed data back to the main process which is running a GUI.
-Concurrency and performance is vital for this GUI.
+tcp communication and parsing data. I want the parsing to happen in a separate process, but I want to access the 
+parsed data in a thread allowing a GUI to run. Concurrency and performance is vital for this GUI.
 
 ## Example
 

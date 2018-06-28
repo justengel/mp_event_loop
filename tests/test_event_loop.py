@@ -6,9 +6,46 @@ def plus_one(value):
     return value + 1
 
 
+def add_vals(value, value2=1):
+    return value + value2
+
+
 def return_print(value):
     print(value)
     return value
+
+
+def test_global_loop():
+    """If this function runs twice it will fail."""
+    results = []
+
+    def save_results(event_result):
+        results.append(event_result.results)
+
+    with mp_event_loop.get_event_loop(output_handlers=save_results):
+        mp_event_loop.add_event(plus_one, 1)
+        mp_event_loop.add_event(plus_one, 2)
+        mp_event_loop.add_event(plus_one, 3)
+        mp_event_loop.add_event(plus_one, args=(4,))
+
+    summed = sum(results)
+    assert summed == 14
+    print("Results summed:", summed)
+
+    # ===== new tests =====
+    results.clear()
+
+    # Uses the same event loop
+    with mp_event_loop.get_event_loop():
+        mp_event_loop.add_event(add_vals, 1, 2)
+        mp_event_loop.add_event(add_vals, 3, 4)
+        mp_event_loop.add_event(add_vals, 5, value2=6)
+        mp_event_loop.add_event(add_vals, args=(7,), kwargs={'value2': 8})
+
+    assert results == [3, 7, 11, 15]
+    summed = sum(results)
+    assert summed == 36
+    print("Results summed:", summed)
 
 
 def test_concurrency():
@@ -85,8 +122,11 @@ if __name__ == '__main__':
     # mp_event_loop.use('multiprocess')
     # mp_event_loop.use('multiprocessing')
 
+    # test_global_loop()
     test_concurrency()
     # test_event_loop()
+    # test_concurrency()
+    test_global_loop()
 
     # tm = timeit.timeit(test_event_loop, number=20)
     # print(tm)

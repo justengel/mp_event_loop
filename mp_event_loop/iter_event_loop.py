@@ -86,19 +86,23 @@ class IterCacheEvent(IterEventMixin, CacheEvent):
 class IterEventLoop(EventLoop):
     run_event_loop = staticmethod(run_iter_event_loop)
 
-    def add_event(self, target=None, args=None, kwargs=None, has_output=None, event_key=None,
-                  cache=False, re_register=False):
+    def add_event(self, target, *args, has_output=None, event_key=None, cache=False, re_register=False, **kwargs):
         """Add an event to be run in a separate process.
 
         Args:
             target (function/method/callable/Event): Event or callable to run in a separate process.
-            args (tuple): Arguments to pass into the target function.
-            kwargs (dict): Keyword arguments to pass into the target function.
+            *args (tuple): Arguments to pass into the target function.
             has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
             event_key (str)[None]: Key to identify the event or output result.
             cache (bool) [False]: If the target object should be cached.
             re_register (bool)[False]: Forcibly register this object in the other process.
+            **kwargs (dict): Keyword arguments to pass into the target function.
+            args (tuple)[None]: Keyword args argument.
+            kwargs (dict)[None]: Keyword kwargs argument.
         """
+        args = kwargs.pop('args', args)
+        kwargs = kwargs.pop('kwargs', kwargs)
+
         if cache and isinstance(target, CacheEvent):
             event = target
         elif cache:
@@ -111,7 +115,7 @@ class IterEventLoop(EventLoop):
 
             if has_output is None:
                 has_output = True
-            event = IterCacheEvent(target, args, kwargs, has_output, event_key,
+            event = IterCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
                                    re_register=re_register, cache=self.cache)
 
         elif isinstance(target, Event):
@@ -119,6 +123,6 @@ class IterEventLoop(EventLoop):
         else:
             if has_output is None:
                 has_output = True
-            event = IterEvent(target, args, kwargs, has_output=has_output, event_key=event_key)
+            event = IterEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key)
 
         self.event_queue.put(event)
