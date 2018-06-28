@@ -141,16 +141,20 @@ class MyEvent(mp_event_loop.Event):
         return value
         
     # def exec_(self):
-    #     """Calls the run method and sets results or error."""
+    #     """Get the command and run it"""
     #     # Get the command to run
+    #     results = None
+    #     error = None
     #     if callable(self.target):
     #         # Run the command
     #         try:
-    #             self.results = self.run()
+    #             results = self.run()
     #         except Exception as err:
-    #             self.error = err
+    #             error = err
     #     else:
-    #         self.error = ValueError("Invalid target (%s) given! Type %s" % (repr(self.target), str(type(self.target))))
+    #         error = ValueError("Invalid target (%s) given! Type %s" % (repr(self.target), str(type(self.target))))
+    # 
+    #     return EventResults(results, error, self)
 
 
 def print_results(event_result):
