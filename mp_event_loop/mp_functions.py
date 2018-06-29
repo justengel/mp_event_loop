@@ -2,7 +2,7 @@ import os
 import sys
 import traceback
 
-from .events import EventResults, Event
+from .events import Event
 
 try:
     import psutil
@@ -79,7 +79,7 @@ def stop_event_loop(alive_event, event_queue=None, event_process=None, consumer_
         alive_event (multiprocessing.Event): Event to signal that the process is closing and exit the loop.
         event_queue (multiprocessing.Queue/multiprocessing.JoinableQueue)[None]: Queue of events.
         event_process (Process/Thread)[None]: Multiprocessing process to join and quit
-        consumer_queue (multiprocessing.Queue/multiprocessing.JoinableQueue)[None]: Queue of results to be processed.
+        consumer_queue (multiprocessing.Queue/multiprocessing.JoinableQueue)[None]: Output queue of events.
         consumer_process (Thread/Process)[None]: Thread to join and quit. (Thread that consumes)
     """
     try:
@@ -114,17 +114,16 @@ def run_event_loop(alive_event, event_queue, consumer_queue=None):
     Args:
         alive_event (multiprocessing.Event): Event to signal when to end the thread
         event_queue (multiprocessing.Queue/multiprocessing.JoinableQueue): Queue to get and run events with
-        consumer_queue (multiprocessing.Queue/multiprocessing.JoinableQueue): Queue to pass results from the process
-            to the thread.
+        consumer_queue (multiprocessing.Queue/multiprocessing.JoinableQueue)[None]: Output queue of events.
     """
     # ===== Run the logging event loop =====
     for _ in LoopQueueSize(alive_event, event_queue):  # Iterate until a stop case then iterate the queue.qsize
         event = event_queue.get()
         if isinstance(event, Event):
             # Run the event
-            event_results = event.exec_()
+            event.exec_()
             if event.has_output:
-                consumer_queue.put(event_results)
+                consumer_queue.put(event)
 
         mark_task_done(event_queue)
 
@@ -136,15 +135,14 @@ def run_consumer_loop(alive_event, consumer_queue, process_output):
 
     Args:
         alive_event (multiprocessing.Event): Event to signal when to end the thread
-        consumer_queue (multiprocessing.Queue/multiprocessing.JoinableQueue): Queue to pass results from the process
-            to the thread.
+        consumer_queue (multiprocessing.Queue/multiprocessing.JoinableQueue)[None]: Output queue of events.
         process_output (callable): Function/method to consume the events.
     """
     for _ in LoopQueueSize(alive_event, consumer_queue):
-        event_results = consumer_queue.get()
-        if isinstance(event_results, EventResults):
+        event = consumer_queue.get()
+        if isinstance(event, Event):
             # Process the output
-            process_output(event_results)
+            process_output(event)
 
         mark_task_done(consumer_queue)
 

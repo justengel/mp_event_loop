@@ -3,7 +3,7 @@ import threading
 
 import multiprocessing as mp
 
-from .events import Event, CacheObjectEvent, CacheEvent
+from .events import Event, CacheEvent, CacheObjectEvent
 from .mp_functions import print_exception, stop_event_loop, run_event_loop, run_consumer_loop
 
 
@@ -15,9 +15,8 @@ class EventLoop(object):
 
     This EventLoop has two main components a process and a thread. The process runs the events in a separate process.
     If the Event has results the event is put on the consumer_queue to be passed back into the main process. The thread
-    runs a loop that waits for the event results using the consumer_queue. The event is passed into
-    EventLoop.process_output where multiple output_handlers can use the results.
-    10.162838401847281
+    runs a loop that waits for the event that were executed using the consumer_queue. The event is passed into
+    EventLoop.process_output where multiple output_handlers can use the event and event.results/event.error.
     """
 
     alive_event_class = mp.Event
@@ -29,6 +28,16 @@ class EventLoop(object):
     run_consumer_loop = staticmethod(run_consumer_loop)
 
     def __init__(self, name='main', event_queue=None, consumer_queue=None, output_handlers=None, has_results=True):
+        """Create the event loop.
+
+        Args:
+            name (str)['main']: Event loop name. This name is passed to the event process and consumer process.
+            event_queue (Queue)[None]: Custom event queue for the event loop.
+            consumer_queue (Queue)[None]: Custom consumer queue for the consumer process.
+            output_handlers (list/tuple/callable): Function or list of funcs that process executed events with results.
+            has_results (bool)[True]: Should this event loop create a consumer process to run executed events
+                through process_output.
+        """
         if event_queue is None:
             event_queue = self.queue_class()
         if consumer_queue is None:
@@ -60,8 +69,7 @@ class EventLoop(object):
         be called.
 
         Args:
-            handler (function/method): Returns True or False to stop propagating the event results. Must take one event
-                argument.
+            handler (function/method): Returns True or False to stop propagating the event. Must take one event arg.
         """
         self.output_handlers.append(handler)
 
@@ -73,22 +81,21 @@ class EventLoop(object):
 
         Args:
             index (int): Index position to insert the handler at.
-            handler (function/method): Returns True or False to stop propagating the event results. Must take one event
-                argument.
+            handler (function/method): Returns True or False to stop propagating the event. Must take one event arg.
         """
         self.output_handlers.insert(index, handler)
 
-    def process_output(self, event_results):
-        """Override this function to handle results.
+    def process_output(self, event):
+        """Override this function to handle executed events.
 
         Args:
-            event_results (mp_event_loop.EventResults): Event that has results or error
+            event (mp_event_loop.Event): Event that has results or error
         """
-        if event_results.error:
-            print_exception(event_results.error)
+        if event.error:
+            print_exception(event.error)
         else:
             for handler in self.output_handlers:
-                if handler(event_results):
+                if handler(event):
                     break
 
     # ========== Event Management ==========
@@ -98,7 +105,7 @@ class EventLoop(object):
         Args:
             target (function/method/callable/Event): Event or callable to run in a separate process.
             *args (tuple): Arguments to pass into the target function.
-            has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
+            has_output (bool) [False]: If True save the executed event and put it on the consumer/output queue.
             event_key (str)[None]: Key to identify the event or output result.
             cache (bool) [False]: If the target object should be cached.
             re_register (bool)[False]: Forcibly register this object in the other process.
@@ -129,7 +136,7 @@ class EventLoop(object):
         Args:
             target (function/method/callable/Event): Event or callable to run in a separate process.
             *args (tuple): Arguments to pass into the target function.
-            has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
+            has_output (bool) [False]: If True save the executed event and put it on the consumer/output queue.
             event_key (str)[None]: Key to identify the event or output result.
             re_register (bool)[False]: Forcibly register this object in the other process.
             **kwargs (dict): Keyword arguments to pass into the target function.
@@ -217,7 +224,12 @@ class EventLoop(object):
         atexit.register(self.stop)
 
     def run(self, events=None, output_handlers=None):
-        """Run events through the main global loop."""
+        """Run events on a separate process.
+
+        Args:
+            events (list/tuple/Event): List of events to add to the event queue.
+            output_handlers (list/tuple/callable): Function or list of functions to add as an output handler.
+        """
         # Add the output handlers
         if output_handlers:
             if not isinstance(output_handlers, (list, tuple)):
@@ -244,7 +256,12 @@ class EventLoop(object):
             self.start()
 
     def run_until_complete(self, events=None, output_handlers=None):
-        """Run until all of the events are complete"""
+        """Run until all of the events are complete.
+
+        Args:
+            events (list/tuple/Event): List of events to add to the event queue.
+            output_handlers (list/tuple/callable): Function or list of functions to add as an output handler.
+        """
         self.run(events=events, output_handlers=output_handlers)
 
         self.wait()
@@ -261,6 +278,8 @@ class EventLoop(object):
         Warning:
             This will also stop the logging
         """
+        if not self._needs_to_close:
+            return
         try:
             self._needs_to_close = False
             atexit.unregister(self.stop)

@@ -19,8 +19,8 @@ def test_global_loop():
     """If this function runs twice it will fail."""
     results = []
 
-    def save_results(event_result):
-        results.append(event_result.results)
+    def save_results(event):
+        results.append(event.results)
 
     with mp_event_loop.get_event_loop(output_handlers=save_results):
         mp_event_loop.add_event(plus_one, 1)

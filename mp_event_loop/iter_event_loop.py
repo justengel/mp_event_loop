@@ -1,4 +1,6 @@
-from mp_event_loop.events import EventResults, Event, CacheEvent
+import copy
+
+from mp_event_loop.events import Event, CacheEvent
 from mp_event_loop.event_loop import EventLoop
 from mp_event_loop.mp_functions import mark_task_done, LoopQueueSize
 
@@ -23,28 +25,33 @@ def run_iter_event_loop(alive_event, event_queue, consumer_queue=None):
 
             if isinstance(event, Event):
                 # Run the event
-                event_results = event.exec_()
-                if is_iterable(event_results.results):
-                    event.iter = event_results.results
+                event.exec_()
+                if is_iterable(event.results):
+                    event.iter = event.results
                     iter_events.append(event)
-                    event_results = None
 
-                if event.has_output and event_results is not None:
-                    consumer_queue.put(event_results)
+                elif event.has_output:
+                    consumer_queue.put(event)
 
             mark_task_done(event_queue)
 
         # Loop through the iterators
         offset = 0
         for i in range(len(iter_events)):
+            event = iter_events[i + offset]
+            new_event = copy.copy(event)
             try:
-                event = iter_events[i + offset]
-                value = next(event.iter)
-                if event.has_output:
-                    consumer_queue.put(EventResults(value, event=event))
+                new_event.results = next(event.iter)
             except (TypeError, StopIteration):
                 iter_events.pop(i)
                 offset -= 1
+                continue
+            except Exception as err:
+                new_event.error = err
+
+            # Put the results on the queue
+            if new_event.has_output:
+                consumer_queue.put(new_event)
 
     alive_event.clear()
 
@@ -58,21 +65,19 @@ class IterEventMixin(object):
     def exec_(self):
         """Get the command and run it"""
         # Get the command to run
-        results = None
-        error = None
+        self.results = None
+        self.error = None
         if is_iterable(self.target):
             # Save the iterable
-            results = self.target
+            self.results = self.target
         elif callable(self.target):
             # Run the command
             try:
-                results = self.run()
+                self.results = self.run()
             except Exception as err:
-                error = err
+                self.error = err
         else:
-            error = ValueError("Invalid target (%s) given! Type %s" % (repr(self.target), str(type(self.target))))
-
-        return EventResults(results, error, self)
+            self.error = ValueError("Invalid target (%s) given! Type %s" % (repr(self.target), str(type(self.target))))
 
 
 class IterEvent(IterEventMixin, Event):
@@ -103,26 +108,56 @@ class IterEventLoop(EventLoop):
         args = kwargs.pop('args', args)
         kwargs = kwargs.pop('kwargs', kwargs)
 
-        if cache and isinstance(target, CacheEvent):
+        if cache:
+            return self.add_cache_event(target, *args, **kwargs, has_output=has_output, event_key=event_key,
+                                        re_register=re_register)
+
+        elif isinstance(target, Event):
             event = target
-        elif cache:
-            if isinstance(target, Event):
-                args = args or target.args
-                kwargs = kwargs or target.kwargs
-                has_output = has_output or target.has_output
-                event_key = event_key or target.event_key
-                target = target.target
+
+        else:
+            if has_output is None:
+                has_output = True
+            event = IterEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key)
+
+        self.event_queue.put(event)
+
+    def add_cache_event(self, target, *args, has_output=None, event_key=None, re_register=False, **kwargs):
+        """Add an event that uses cached objects.
+
+        Args:
+            target (function/method/callable/Event): Event or callable to run in a separate process.
+            *args (tuple): Arguments to pass into the target function.
+            has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
+            event_key (str)[None]: Key to identify the event or output result.
+            re_register (bool)[False]: Forcibly register this object in the other process.
+            **kwargs (dict): Keyword arguments to pass into the target function.
+            args (tuple)[None]: Keyword args argument.
+            kwargs (dict)[None]: Keyword kwargs argument.
+        """
+        args = kwargs.pop('args', args)
+        kwargs = kwargs.pop('kwargs', kwargs)
+
+        # Make sure cache is not a kwargs
+        kwargs.pop('cache', None)
+
+        if isinstance(target, CacheEvent):
+            event = target
+        elif isinstance(target, Event):
+            args = args or target.args
+            kwargs = kwargs or target.kwargs
+            has_output = has_output or target.has_output
+            event_key = event_key or target.event_key
+            target = target.target
 
             if has_output is None:
                 has_output = True
             event = IterCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
                                    re_register=re_register, cache=self.cache)
-
-        elif isinstance(target, Event):
-            event = target
         else:
             if has_output is None:
                 has_output = True
-            event = IterEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key)
+            event = IterCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
+                                   re_register=re_register, cache=self.cache)
 
         self.event_queue.put(event)

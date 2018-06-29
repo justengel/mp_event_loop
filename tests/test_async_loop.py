@@ -1,10 +1,11 @@
 import mp_event_loop
+from mp_event_loop.async_event_loop import AsyncEventLoop
 import multiprocessing_on_dill as mp
 
 mp_event_loop.use(mp)
-mp_event_loop.AsyncEventLoop.alive_event_class = mp.Event
-mp_event_loop.AsyncEventLoop.queue_class = mp.JoinableQueue
-mp_event_loop.AsyncEventLoop.event_loop_class = mp.Process
+AsyncEventLoop.alive_event_class = mp.Event
+AsyncEventLoop.queue_class = mp.JoinableQueue
+AsyncEventLoop.event_loop_class = mp.Process
 
 
 async def print_test(value, name):
@@ -16,11 +17,11 @@ def test_async_event_loop():
 
     results = []
 
-    def save_results(event_results):
-        results.append(event_results.results)
+    def save_results(event):
+        results.append(event.results)
 
-    with mp_event_loop.AsyncEventLoop(output_handlers=save_results) as loop:
-        loop.add_event(print_test, args=(1, "hello"))
+    with AsyncEventLoop(output_handlers=save_results) as loop:
+        loop.add_event(print_test, 1, "hello")
         # loop.add_event(print_test(1, "hello"))
         # loop.add_event(print_test(2, 'hi'))
         # loop.add_event(print_test(3, 'oi'))

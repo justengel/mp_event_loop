@@ -1,6 +1,7 @@
+import copy
 import types
 
-from .events import EventResults, Event, CacheEvent
+from .events import Event, CacheEvent
 from .event_loop import EventLoop
 from .mp_functions import mark_task_done, LoopQueueSize
 
@@ -26,48 +27,44 @@ def run_async_event_loop(alive_event, event_queue, consumer_queue=None):
 
             if isinstance(event, Event):
                 # Run the event
-                event_results = event.exec_()
-                if event_results.results and isinstance(event_results.results, types.CoroutineType):
+                event.exec_()
+                if event.results and isinstance(event.results, types.CoroutineType):
                     try:
-                        event_results.results = event_results.results.send(None)  # The coroutine is finally called
+                        event.results = event.results.send(None)  # The coroutine is finally called
                     except StopIteration:
                         pass
-                elif event_results.results and isinstance(event_results.results, types.AsyncGeneratorType):
-                    event.async_generator = event_results.results
-                    async_generator_events.append(event)
-                    event_results = None
 
-                if event.has_output and event_results is not None:
-                    consumer_queue.put(event_results)
+                if event.results and isinstance(event.results, types.AsyncGeneratorType):
+                    event.async_generator = event.results
+                    async_generator_events.append(event)
+
+                elif event.has_output:
+                    consumer_queue.put(event)
 
             mark_task_done(event_queue)
 
         # Loop through the existing async_generators
         offset = 0
         for i in range(len(async_generator_events)):
-            event = None
-            event_results = EventResults()
+            event = async_generator_events[i + offset]
+            new_event = copy.copy(event)
             try:
-                event = async_generator_events[i + offset]
-                event_results.event = event
-                event_results.event_key = event.event_key
-
                 coro = event.async_generator.asend(None)
-                event_results.results = coro.send(None)
+                new_event.results = coro.send(None)
             except StopIteration:
                 # Every coro.send call will cause a StopIteration
-                pass
+                continue
             except (StopAsyncIteration, AttributeError):
                 # The async generator is complete
                 async_generator_events.pop(i)
                 offset -= 1
                 continue
             except Exception as err:
-                event_results.error = err
+                new_event.error = err
 
             # Put the results on the queue
-            if event is not None and event.has_output and event_results is not None:
-                consumer_queue.put(event_results)
+            if new_event.has_output:
+                consumer_queue.put(new_event)
 
     alive_event.clear()
 

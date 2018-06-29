@@ -23,7 +23,7 @@ The EventLoop comes with several utilities for managing the separate process.
 The EventLoop also comes with some utilities to add commands to be processed and a way to handle results.
 
   * add_event(target, args, kwargs, ...) - Add an event to be executed in a separate process.
-  * add_output_handler(function) - Function that takes in an EventResult after the event has been executed.
+  * add_output_handler(function) - Function that takes in an Event after the event has been executed.
     
 These functions will be explained more below
 
@@ -42,8 +42,8 @@ def add_vals(value, value2=1):
     
 results = []
 
-def save_results(event_result):
-    results.append(event_result.results)
+def save_results(event):
+    results.append(event.results)
 
 
 with mp_event_loop.get_event_loop(output_handlers=save_results):
@@ -70,8 +70,8 @@ def add_one(value):
     
 results = []
 
-def save_results(event_result):
-    results.append(event_result.results)
+def save_results(event):
+    results.append(event.results)
     
 mp_event_loop.run([{'target': add_one, 'args': (1,)},
                    {'target': add_one, 'args': (2,)},
@@ -88,9 +88,9 @@ print("Results summed:", sum(results))
 
 ## How it works
 The EventLoop works by creating a Process and a Thread. The Process takes the 
-Event from a queue and runs the function. Once the Event is complete, an EventResult is put on a result Queue. 
-The Thread takes the EventResult from the result Queue and passes it to all of the output_handlers in the EventLoop. 
-If one of the output_handlers returns True the event result will stop propagating to the other output_handlers.
+Event from a queue and runs the function. Once the Event is complete, the event is put on a result Queue/consumer Queue. 
+The Thread takes the Event from the result Queue and passes it to all of the output_handlers in the EventLoop. 
+If one of the output_handlers returns True the event will stop propagating to the other output_handlers.
 
 Because of locking mechanisms in the Queue and message passing between processes this will be slow. You will probably 
 only use this for concurrency. This is usefully for non-IO concurrency where Threads may impact performance.
@@ -110,8 +110,8 @@ def add_one(value):
     
 results = []
 
-def save_results(event_result):
-    results.append(event_result.results)
+def save_results(event):
+    results.append(event.results)
     
 with mp_event_loop.EventLoop(output_handlers=save_results) as loop:
     loop.add_event(add_one, args=(1,))
@@ -143,22 +143,20 @@ class MyEvent(mp_event_loop.Event):
     # def exec_(self):
     #     """Get the command and run it"""
     #     # Get the command to run
-    #     results = None
-    #     error = None
+    #     self.results = None
+    #     self.error = None
     #     if callable(self.target):
     #         # Run the command
     #         try:
-    #             results = self.run()
+    #             self.results = self.run()
     #         except Exception as err:
-    #             error = err
-    #     else:
-    #         error = ValueError("Invalid target (%s) given! Type %s" % (repr(self.target), str(type(self.target))))
-    # 
-    #     return EventResults(results, error, self)
+    #             self.error = err
+    #     elif self.target is not None:
+    #         self.error = ValueError("Invalid target (%s) given! Type %s" % (repr(self.target), str(type(self.target))))
 
 
-def print_results(event_result):
-    print(event_result.results)
+def print_results(event):
+    print(event.results)
 
 
 loop = mp_event_loop.EventLoop(output_handlers=print_results)
@@ -178,7 +176,8 @@ It is much easier to pass a function into an Event, but you may find this useful
 ## Output Handlers
 
 The EventLoop contains a list of output_handlers. An output handler is just a simple function that takes in an event.
-The Event object will have results property which contains the results from the event execution
+The Event object will have results property which contains the results from the event execution (results return 
+from the target function).
 
 ```python
 import mp_event_loop
@@ -196,15 +195,15 @@ class MyEvent(mp_event_loop.Event):
         return value
         
         
-def print_my_event(event_result):
-    if isinstance(event_result.event, MyEvent):
-        print('My Event', event_result.results)
+def print_my_event(event):
+    if isinstance(event, MyEvent):
+        print('My Event', event.results)
         return True  # Stop running the other output_handlers
     else:
         print("Not My Event")
 
-def print_event(event_result):
-    print("Normal Event", event_result.results)
+def print_event(event):
+    print("Normal Event", event.results)
     
     
 def add_one(value):
@@ -300,11 +299,11 @@ import mp_event_loop
 a = ABC(1, 2, 0)
 
 
-def save_object(event_result):
-    if event_result.event_key == 'a':
-        a.a = event_result.results.a
-        a.b = event_result.results.b
-        a.c = event_result.results.c
+def save_object(event):
+    if event.event_key == 'a':
+        a.a = event.results.a
+        a.b = event.results.b
+        a.c = event.results.c
         return True
 
 

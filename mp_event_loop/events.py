@@ -1,18 +1,6 @@
 import types
 
-__all__ = ['EventResults', 'Event', 'CacheObjectEvent', 'CacheEvent']
-
-
-class EventResults(object):
-    """Results object."""
-    def __init__(self, results=None, error=None, event=None):
-        self.results = results
-        self.error = error
-        self.event = event
-        self.event_key = None
-
-        if self.event is not None:
-            self.event_key = self.event.event_key
+__all__ = ['Event', 'CacheEvent', 'CacheObjectEvent']
 
 
 class Event(object):
@@ -49,18 +37,16 @@ class Event(object):
     def exec_(self):
         """Get the command and run it"""
         # Get the command to run
-        results = None
-        error = None
+        self.results = None
+        self.error = None
         if callable(self.target):
             # Run the command
             try:
-                results = self.run()
+                self.results = self.run()
             except Exception as err:
-                error = err
+                self.error = err
         elif self.target is not None:
-            error = ValueError("Invalid target (%s) given! Type %s" % (repr(self.target), str(type(self.target))))
-
-        return EventResults(results, error, self)
+            self.error = ValueError("Invalid target (%s) given! Type %s" % (repr(self.target), str(type(self.target))))
 
     def __getstate__(self):
         """Return the state for pickling."""
@@ -257,20 +243,18 @@ class CacheObjectEvent(CacheEvent):
     def exec_(self):
         """Get the command and run it"""
         # Get the command to run
-        results = None
-        error = None
+        self.results = None
+        self.error = None
         if callable(self.target):
             # Run the command
             try:
-                results = self.run()
+                self.results = self.run()
             except Exception as err:
-                error = err
+                self.error = err
         elif self.target is None and self.object is not None:
-            results = self.object
+            self.results = self.object
         else:
-            error = ValueError("Invalid target (%s) given! Type %s" % (repr(self.target), str(type(self.target))))
-
-        return EventResults(results, error, self)
+            self.error = ValueError("Invalid target (%s) given! Type %s" % (repr(self.target), str(type(self.target))))
 
     def __setstate__(self, state):
         """Set the object variables after pickling."""

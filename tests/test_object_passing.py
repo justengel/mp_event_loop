@@ -49,14 +49,13 @@ def test_object_state():
 def test_cache_object():
     a = ABC(1, 2, 0)
 
-    def save_result_object(event_result):
-        if isinstance(event_result.event, mp_event_loop.CacheObjectEvent):
-            event = event_result.event
+    def save_result_object(event):
+        if isinstance(event, mp_event_loop.CacheObjectEvent):
             if event.event_key == 'a':
                 # Manually set values here
-                a.a = event_result.results.a
-                a.b = event_result.results.b
-                a.c = event_result.results.c
+                a.a = event.results.a
+                a.b = event.results.b
+                a.c = event.results.c
             return True
 
     with mp_event_loop.get_event_loop(output_handlers=save_result_object) as loop:

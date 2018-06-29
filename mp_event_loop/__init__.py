@@ -1,6 +1,6 @@
 from .mp_functions import print_exception, is_parent_process_alive, mark_task_done,\
     stop_event_loop, run_event_loop, run_consumer_loop
-from .events import EventResults, Event, CacheObjectEvent, CacheEvent
+from .events import Event, CacheEvent, CacheObjectEvent
 from .event_loop import EventLoop
 
 from multiprocessing import freeze_support
@@ -64,7 +64,17 @@ __loop__ = None
 
 
 def get_event_loop(name=None, event_queue=None, consumer_queue=None, output_handlers=None, has_results=True):
-    """Return the global event loop. If it does not exist create it. It will still need to be started."""
+    """Return the global event loop. If it does not exist create it. It will still need to be started or used as a
+    context manager using the `with` statement.
+
+    Args:
+        name (str)['main']: Event loop name. This name is passed to the event process and consumer process.
+        event_queue (Queue)[None]: Custom event queue for the event loop.
+        consumer_queue (Queue)[None]: Custom consumer queue for the consumer process.
+        output_handlers (list/tuple/callable): Function or list of funcs that process executed events with results.
+        has_results (bool)[True]: Should this event loop create a consumer process to run executed events
+            through process_output.
+    """
     if name is None:
         name = GLOBAL_NAME
 
@@ -77,7 +87,14 @@ def get_event_loop(name=None, event_queue=None, consumer_queue=None, output_hand
 
 
 def add_output_handler(handler):
-    """Add output handlers into the main global loop."""
+    """Add output handlers into the main global loop.
+
+    The handler must be a callable that returns a boolean. If the handler returns True no other handlers after will
+    be called.
+
+    Args:
+        handler (function/method): Returns True or False to stop propagating the event. Must take one event arg.
+    """
     global __loop__
     if __loop__ is None:
         __loop__ = DefaultEventLoop(GLOBAL_NAME)
@@ -86,7 +103,15 @@ def add_output_handler(handler):
 
 
 def insert_output_handler(index, handler):
-    """Insert output handlers into the main global loop."""
+    """Insert output handlers into the main global loop.
+
+    The handler must be a callable that returns a boolean. If the handler returns True no other handlers after will
+    be called.
+
+    Args:
+        index (int): Index position to insert the handler at.
+        handler (function/method): Returns True or False to stop propagating the event. Must take one event arg.
+    """
     global __loop__
     if __loop__ is None:
         __loop__ = DefaultEventLoop(GLOBAL_NAME)
@@ -94,13 +119,69 @@ def insert_output_handler(index, handler):
     return __loop__.insert_output_handler(index, handler)
 
 
-def add_event(*args, start_loop=True, **kwargs):
-    """Add an event to the main global loop to be run in a separate process."""
+def add_event(target, *args, has_output=None, event_key=None, cache=False, re_register=False, start_loop=True,**kwargs):
+    """Add an event to the main global loop to be run in a separate process.
+
+    Args:
+        target (function/method/callable/Event): Event or callable to run in a separate process.
+        *args (tuple): Arguments to pass into the target function.
+        has_output (bool) [False]: If True save the executed event and put it on the consumer/output queue.
+        event_key (str)[None]: Key to identify the event or output result.
+        cache (bool) [False]: If the target object should be cached.
+        re_register (bool)[False]: Forcibly register this object in the other process.
+        **kwargs (dict): Keyword arguments to pass into the target function.
+        args (tuple)[None]: Keyword args argument.
+        kwargs (dict)[None]: Keyword kwargs argument.
+    """
     global __loop__
     if __loop__ is None:
         __loop__ = DefaultEventLoop(GLOBAL_NAME)
 
-    return __loop__.add_event(*args, **kwargs)
+    __loop__.add_event(target, *args, has_output=has_output, event_key=event_key, cache=cache,
+                       re_register=re_register, **kwargs)
+
+    if start_loop and not __loop__.is_running():
+        __loop__.start()
+
+
+def add_cache_event(target, *args, has_output=None, event_key=None, re_register=False, start_loop=True, **kwargs):
+    """Add an event that uses cached objects to the main global loop.
+
+    Args:
+        target (function/method/callable/Event): Event or callable to run in a separate process.
+        *args (tuple): Arguments to pass into the target function.
+        has_output (bool) [False]: If True save the executed event and put it on the consumer/output queue.
+        event_key (str)[None]: Key to identify the event or output result.
+        re_register (bool)[False]: Forcibly register this object in the other process.
+        **kwargs (dict): Keyword arguments to pass into the target function.
+        args (tuple)[None]: Keyword args argument.
+        kwargs (dict)[None]: Keyword kwargs argument.
+    """
+    global __loop__
+    if __loop__ is None:
+        __loop__ = DefaultEventLoop(GLOBAL_NAME)
+
+    __loop__.add_cache_event(target, *args, has_output=has_output, event_key=event_key,
+                             re_register=re_register, **kwargs)
+
+    if start_loop and not __loop__.is_running():
+        __loop__.start()
+
+
+def cache_object(*args, **kwargs):
+    """Save an object in the separate processes, so the object can persist.
+
+    Args:
+        obj (object): Object to save in the separate process. This object will keep it's values between cache events
+        has_output (bool)[False]: If True the cache object will be a result passed into the output_handlers.
+        event_key (str)[None]: Key to identify the event or output result.
+        re_register (bool)[False]: Forcibly register this object in the other process.
+    """
+    global __loop__
+    if __loop__ is None:
+        __loop__ = DefaultEventLoop(GLOBAL_NAME)
+
+    __loop__.cache_object(*args, **kwargs)
 
 
 def is_running():
@@ -120,7 +201,12 @@ def start():
 
 
 def run(events=None, output_handlers=None):
-    """Run events through the main global loop."""
+    """Run events on the global event loop and let the program continue.
+
+    Args:
+        events (list/tuple/Event): List of events to add to the event queue.
+        output_handlers (list/tuple/callable): Function or list of functions to add as an output handler.
+    """
     global __loop__
     if __loop__ is None:
         __loop__ = DefaultEventLoop(GLOBAL_NAME)
@@ -129,7 +215,12 @@ def run(events=None, output_handlers=None):
 
 
 def run_until_complete(events=None, output_handlers=None):
-    """Wait for the main global loop."""
+    """Run the global event loop until all of the events are complete.
+
+    Args:
+        events (list/tuple/Event): List of events to add to the event queue.
+        output_handlers (list/tuple/callable): Function or list of functions to add as an output handler.
+    """
     global __loop__
     if __loop__ is None:
         __loop__ = DefaultEventLoop(GLOBAL_NAME)
