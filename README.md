@@ -229,7 +229,7 @@ with mp_event_loop.EventLoop(output_handlers=[print_my_event, print_event]) as l
 ```
 
 ## Object State
-One thing to remember is that objects in the other process will have a different state then objects in the main process.
+One thing to remember is that objects in the other process will have a different state than objects in the main process.
 
 This can be seen with the code below.
 
@@ -258,7 +258,7 @@ with mp_event_loop.get_event_loop(has_results=False) as loop:
     # The other process has the correct c value but never passes it back
 
     # We are passing this a's values down which is 1, 2, 0. We never got the result of "a.calc_c()"
-    loop.add_event(print, a)   # Prints a correctly "ABC(a=1, b=2, c=0)"
+    loop.add_event(print, a)   # Prints the 'a' that the main thread passed to the process "ABC(a=1, b=2, c=0)"
 ```
 
 This example shows that `a` in the main process is never changing. `a.calc_c()` is run the other process, but the 
@@ -275,20 +275,22 @@ with mp_event_loop.get_event_loop(has_results=False) as loop:
     loop.add_event(print, "=====", a, "=====")  # Prints a correctly "ABC(a=1, b=2, c=0)"
     
     # You can manually cache an object
-    loop.cache_object(a)
+    # loop.cache_object(a)
+    # Only needed for object arguments 'loop.add_event(my_func, a, cache=True)' only my_func is registered and cached.
+    # If 'a' is cached it will use it by using a's object_id, but it will not register and cache the 'a' object.  
     
     # Or pass in cache=True or loop.add_cache_event
     loop.add_event(a.calc_c, cache=True)  # Keeps track of an id for 'a' and saves 'a' in the separate process
     
     # DO NOT pass a down to the other process. Instead pass an object_id for 'a'. The other process will use the 
     # object_id to get the stored 'a' object and use that object.
-    loop.add_event(print, a, cache=True)  # Prints the cached a object correctly "ABC(a=1, b=2, c=3)"
+    loop.add_event(print, a, cache=True)  # Prints the cached 'a' object correctly "ABC(a=1, b=2, c=3)"
 ```
 
 ### Object State - passing the object back to the main process
 While caching the object in the other process may be useful it is still limited. The biggest drawback is that the main
 process does not have the correct object values. If you want the objects to keep the correct state it is advised to use
-the multiprocessing modules shared memory.
+the multiprocessing shared memory.
 
 If shared memory is not your desire and you don't need the result immediately, you can use the mp_event_loop as a 
 form of message passing to maintain an object's state.
