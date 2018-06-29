@@ -229,6 +229,125 @@ with mp_event_loop.EventLoop(output_handlers=[print_my_event, print_event]) as l
 # My Event [0, 1, 2, 3, 4]
 ```
 
+## Object State
+One thing to remember is that objects in the other process will have a different state then objects in the main process.
+
+This can be seen with the code below.
+
+```python
+import mp_event_loop
+
+
+class ABC(object):
+    def __init__(self, a, b, c):
+        self.a = a
+        self.b = b
+        self.c = c
+
+    def calc_c(self):
+        self.c = self.a + self.b
+
+    def __repr__(self):
+        return "ABC(a=%d, b=%d, c=%d)" % (self.a, self.b, self.c)
+        
+
+a = ABC(1, 2, 0)
+
+with mp_event_loop.get_event_loop(has_results=False) as loop:
+    loop.add_event(print, "=====", a, "=====")  # Prints a correctly "ABC(a=1, b=2, c=0)"
+    loop.add_event(a.calc_c)  # Does calculation, but doesn't send the result back to us
+    # The other process has the correct c value but never passes it back
+
+    # We are passing this a's values down which is 1, 2, 0. We never got the result of "a.calc_c()"
+    loop.add_event(print, a)   # Prints a correctly "ABC(a=1, b=2, c=0)"
+```
+
+This example shows that `a` in the main process is never changing. `a.calc_c()` is run the other process, but the 
+other process does not save the object `a`. In the scope of the other process `a` with `a.calc_c()` dies and goes away.
+The main process `a` never changed and still has the values of a=1, b=2, c=0.
+
+To solve this problem I created some caching events. These events save object with an id. The other process is given 
+the object_id and uses it to get the correct object.
+
+```python
+a = ABC(1, 2, 0)
+
+with mp_event_loop.get_event_loop(has_results=False) as loop:
+    loop.add_event(print, "=====", a, "=====")  # Prints a correctly "ABC(a=1, b=2, c=0)"
+    
+    # You can manually cache an object
+    loop.cache_object(a)
+    
+    # Or pass in cache=True or loop.add_cache_event
+    loop.add_event(a.calc_c, cache=True)  # Keeps track of an id for 'a' and saves 'a' in the separate process
+    
+    # DO NOT pass a down to the other process. Instead pass an object_id for 'a'. The other process will use the 
+    # object_id to get the stored 'a' object and use that object.
+    loop.add_event(print, a, cache=True)  # Prints the cached a object correctly "ABC(a=1, b=2, c=3)"
+```
+
+### Object State - passing the object back to the main process
+While caching the object in the other process may be useful it is still limited. The biggest drawback is that the main
+process does not have the correct object values. If you want the objects to keep the correct state it is advised to use
+the multiprocessing modules shared memory.
+
+If shared memory is not your desire and you don't need the result immediately, you can use the mp_event_loop as a 
+form of message passing to maintain an object's state.
+
+```python
+import mp_event_loop
+
+a = ABC(1, 2, 0)
+
+
+def save_object(event_result):
+    if event_result.event_key == 'a':
+        a.a = event_result.results.a
+        a.b = event_result.results.b
+        a.c = event_result.results.c
+        return True
+
+
+with mp_event_loop.get_event_loop(output_handlers=save_object) as loop:
+    loop.add_event(print, "=====", a, "=====")  # Prints a correctly "ABC(a=1, b=2, c=0)"
+    loop.add_event(a.calc_c)  # Does calculation, but doesn't send the result back to us
+    # The other process has the correct c value but never passes it back
+
+    # We are passing this a's values down which is 1, 2, 0. We never got the result of "a.calc_c()"
+    loop.add_event(print, "No cache", a)
+    
+    # Use caching events
+    loop.add_event(a.calc_c, cache=True)
+    loop.add_event(print, "Cached", a, cache=True)
+
+    # Try getting the object back with save_result_object
+    loop.cache_object(a, has_output=True, event_key='a')  # has_output=True sends the event back into the consumer queue
+    print("Main process", a)
+    loop.add_event(print, "No cache", a)  # This fails, because the event has not run and come back yet.
+    loop.add_event(print, "Cached", a, cache=True)
+
+print("Main process after event loop", a)
+```
+
+The output of the above code looks like
+
+    Main process ABC(a=1, b=2, c=0)
+    ===== ABC(a=1, b=2, c=0) =====
+    No cache ABC(a=1, b=2, c=0)
+    Cached ABC(a=1, b=2, c=3)
+    No cache ABC(a=1, b=2, c=0)
+    Cached ABC(a=1, b=2, c=3)
+    Main process after event loop ABC(a=1, b=2, c=3)
+    
+    Process finished with exit code 0
+    
+Take note that the first thing printed is `Main process ABC(a=1, b=2, c=0)`. Even though the print statement is near 
+the end of the with statement this is the first thing printed. All of the events are thrown on a queue and are executed
+in a separate process later. You have to wait until after all of the events are processed to get the correct results.
+`Main process after event loop ABC(a=1, b=2, c=3)` is correct, because it is outside of the with statement and waits 
+until all events are complete.
+
+I hope you read all that carefully and fully understand how it works before you use it. Enjoy.
 
 ## Pickling
 If pickling is annoying you then you can use a different multiprocessing library.

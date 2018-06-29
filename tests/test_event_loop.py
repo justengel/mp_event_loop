@@ -123,9 +123,8 @@ if __name__ == '__main__':
     # mp_event_loop.use('multiprocessing')
 
     # test_global_loop()
+    test_event_loop()
     test_concurrency()
-    # test_event_loop()
-    # test_concurrency()
     test_global_loop()
 
     # tm = timeit.timeit(test_event_loop, number=20)

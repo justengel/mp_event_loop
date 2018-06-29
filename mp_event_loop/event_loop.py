@@ -3,7 +3,7 @@ import threading
 
 import multiprocessing as mp
 
-from .events import Event, CacheEvent
+from .events import Event, CacheObjectEvent, CacheEvent
 from .mp_functions import print_exception, stop_event_loop, run_event_loop, run_consumer_loop
 
 
@@ -109,27 +109,82 @@ class EventLoop(object):
         args = kwargs.pop('args', args)
         kwargs = kwargs.pop('kwargs', kwargs)
 
-        if cache and isinstance(target, CacheEvent):
+        if cache:
+            return self.add_cache_event(target, *args, **kwargs, has_output=has_output, event_key=event_key,
+                                        re_register=re_register)
+
+        elif isinstance(target, Event):
             event = target
-        elif cache:
-            if isinstance(target, Event):
-                args = args or target.args
-                kwargs = kwargs or target.kwargs
-                has_output = has_output or target.has_output
-                event_key = event_key or target.event_key
-                target = target.target
+
+        else:
+            if has_output is None:
+                has_output = True
+            event = Event(target, *args, **kwargs, has_output=has_output, event_key=event_key)
+
+        self.event_queue.put(event)
+
+    def add_cache_event(self, target, *args, has_output=None, event_key=None, re_register=False, **kwargs):
+        """Add an event that uses cached objects.
+
+        Args:
+            target (function/method/callable/Event): Event or callable to run in a separate process.
+            *args (tuple): Arguments to pass into the target function.
+            has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
+            event_key (str)[None]: Key to identify the event or output result.
+            re_register (bool)[False]: Forcibly register this object in the other process.
+            **kwargs (dict): Keyword arguments to pass into the target function.
+            args (tuple)[None]: Keyword args argument.
+            kwargs (dict)[None]: Keyword kwargs argument.
+        """
+        args = kwargs.pop('args', args)
+        kwargs = kwargs.pop('kwargs', kwargs)
+
+        # Make sure cache is not a kwargs
+        kwargs.pop('cache', None)
+
+        if isinstance(target, CacheEvent):
+            event = target
+        elif isinstance(target, Event):
+            args = args or target.args
+            kwargs = kwargs or target.kwargs
+            has_output = has_output or target.has_output
+            event_key = event_key or target.event_key
+            target = target.target
 
             if has_output is None:
                 has_output = True
             event = CacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
                                re_register=re_register, cache=self.cache)
-
-        elif isinstance(target, Event):
-            event = target
         else:
             if has_output is None:
                 has_output = True
-            event = Event(target, *args, **kwargs, has_output=has_output, event_key=event_key)
+            event = CacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
+                               re_register=re_register, cache=self.cache)
+
+        self.event_queue.put(event)
+
+    def cache_object(self, obj, has_output=False, event_key=None, re_register=False):
+        """Save an object in the separate processes, so the object can persist.
+
+        Args:
+            obj (object): Object to save in the separate process. This object will keep it's values between cache events
+            has_output (bool)[False]: If True the cache object will be a result passed into the output_handlers.
+            event_key (str)[None]: Key to identify the event or output result.
+            re_register (bool)[False]: Forcibly register this object in the other process.
+        """
+        if isinstance(obj, CacheObjectEvent):
+            event = obj
+        elif isinstance(obj, Event):
+            old_event = obj
+            obj = old_event.target
+            event = CacheObjectEvent(obj, has_output=has_output, event_key=event_key,
+                                     re_register=re_register, cache=self.cache)
+            event.args = old_event.args
+            event.kwargs = old_event.kwargs
+            event.event_key = old_event.event_key
+        else:
+            event = CacheObjectEvent(obj, has_output=has_output, event_key=event_key,
+                                     re_register=re_register, cache=self.cache)
 
         self.event_queue.put(event)
 
@@ -229,8 +284,7 @@ class EventLoop(object):
 
     def __del__(self):
         try:
-            if self._needs_to_close:
-                self.close()
+            self.close()
         except:
             pass
 
