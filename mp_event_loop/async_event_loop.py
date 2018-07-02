@@ -34,12 +34,13 @@ def run_async_event_loop(alive_event, event_queue, consumer_queue=None):
                     except StopIteration:
                         pass
 
-                if event.results and isinstance(event.results, types.AsyncGeneratorType):
-                    event.async_generator = event.results
-                    async_generator_events.append(event)
+                if consumer_queue:
+                    if event.results and isinstance(event.results, types.AsyncGeneratorType):
+                        event.async_generator = event.results
+                        async_generator_events.append(event)
 
-                elif event.has_output:
-                    consumer_queue.put(event)
+                    elif event.has_output:
+                        consumer_queue.put(event)
 
             mark_task_done(event_queue)
 
@@ -63,7 +64,7 @@ def run_async_event_loop(alive_event, event_queue, consumer_queue=None):
                 new_event.error = err
 
             # Put the results on the queue
-            if new_event.has_output:
+            if consumer_queue and new_event.has_output:
                 consumer_queue.put(new_event)
 
     alive_event.clear()

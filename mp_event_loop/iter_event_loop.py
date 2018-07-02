@@ -26,12 +26,13 @@ def run_iter_event_loop(alive_event, event_queue, consumer_queue=None):
             if isinstance(event, Event):
                 # Run the event
                 event.exec_()
-                if is_iterable(event.results):
-                    event.iter = event.results
-                    iter_events.append(event)
+                if consumer_queue:
+                    if is_iterable(event.results):
+                        event.iter = event.results
+                        iter_events.append(event)
 
-                elif event.has_output:
-                    consumer_queue.put(event)
+                    elif event.has_output:
+                        consumer_queue.put(event)
 
             mark_task_done(event_queue)
 
@@ -50,7 +51,7 @@ def run_iter_event_loop(alive_event, event_queue, consumer_queue=None):
                 new_event.error = err
 
             # Put the results on the queue
-            if new_event.has_output:
+            if consumer_queue and new_event.has_output:
                 consumer_queue.put(new_event)
 
     alive_event.clear()

@@ -122,7 +122,7 @@ def run_event_loop(alive_event, event_queue, consumer_queue=None):
         if isinstance(event, Event):
             # Run the event
             event.exec_()
-            if event.has_output:
+            if consumer_queue and event.has_output:
                 consumer_queue.put(event)
 
         mark_task_done(event_queue)
