@@ -1,4 +1,4 @@
-from .mp_functions import print_exception, is_parent_process_alive, mark_task_done,\
+from .mp_functions import print_exception, is_parent_process_alive, mark_task_done, LoopQueueSize, \
     stop_event_loop, run_event_loop, run_consumer_loop
 from .events import Event, CacheEvent, CacheObjectEvent
 from .event_loop import EventLoop
