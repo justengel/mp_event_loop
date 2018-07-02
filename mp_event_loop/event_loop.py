@@ -27,14 +27,14 @@ class EventLoop(object):
     run_event_loop = staticmethod(run_event_loop)
     run_consumer_loop = staticmethod(run_consumer_loop)
 
-    def __init__(self, name='main', event_queue=None, consumer_queue=None, output_handlers=None, has_results=True):
+    def __init__(self, output_handlers=None, event_queue=None, consumer_queue=None, name='main', has_results=True):
         """Create the event loop.
 
         Args:
-            name (str)['main']: Event loop name. This name is passed to the event process and consumer process.
+            output_handlers (list/tuple/callable)[None]: Function or list of funcs that executed events with results.
             event_queue (Queue)[None]: Custom event queue for the event loop.
             consumer_queue (Queue)[None]: Custom consumer queue for the consumer process.
-            output_handlers (list/tuple/callable): Function or list of funcs that process executed events with results.
+            name (str)['main']: Event loop name. This name is passed to the event process and consumer process.
             has_results (bool)[True]: Should this event loop create a consumer process to run executed events
                 through process_output.
         """

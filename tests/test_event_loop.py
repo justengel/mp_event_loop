@@ -58,9 +58,9 @@ def test_concurrency():
         records[record_idx[0]] = event.results
         record_idx[0] += 1
 
-    with mp_event_loop.EventLoop("EL 1", consumer_queue=out_queue, output_handlers=save_record) as el1,\
-            mp_event_loop.EventLoop('EL two', consumer_queue=out_queue, has_results=False) as el2,\
-            mp_event_loop.EventLoop('EL three', consumer_queue=out_queue, has_results=False) as el3:
+    with mp_event_loop.EventLoop(name="EL 1", consumer_queue=out_queue, output_handlers=save_record) as el1,\
+            mp_event_loop.EventLoop(name='EL two', consumer_queue=out_queue, has_results=False) as el2,\
+            mp_event_loop.EventLoop(name='EL three', consumer_queue=out_queue, has_results=False) as el3:
 
         # Fast iterator to quickly add all of the events.
         all((el1.add_event(return_print, args=('EL 1\t%d' % i,)),

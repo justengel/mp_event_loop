@@ -46,7 +46,7 @@ def save_results(event):
     results.append(event.results)
 
 
-with mp_event_loop.get_event_loop(output_handlers=save_results):
+with mp_event_loop.get_event_loop(save_results):
     mp_event_loop.add_event(add_vals, 2)
     mp_event_loop.add_event(add_vals, 3, 4)
     mp_event_loop.add_event(add_vals, 5, value2=6)

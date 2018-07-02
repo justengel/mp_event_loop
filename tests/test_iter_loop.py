@@ -41,9 +41,9 @@ def test_iterator():
         records[record_idx[0]] = event.results
         record_idx[0] += 1
 
-    with IterEventLoop("EL 1", consumer_queue=out_queue, output_handlers=save_record) as el1,\
-            IterEventLoop('EL two', consumer_queue=out_queue, has_results=False) as el2,\
-            IterEventLoop('EL three', consumer_queue=out_queue, has_results=False) as el3:
+    with IterEventLoop(name="EL 1", consumer_queue=out_queue, output_handlers=save_record) as el1,\
+            IterEventLoop(name='EL two', consumer_queue=out_queue, has_results=False) as el2,\
+            IterEventLoop(name='EL three', consumer_queue=out_queue, has_results=False) as el3:
 
         # Fast iterator to quickly add all of the events.
         all((el1.add_event(MyIter('EL 1 - %d iter' % i, 20)),
@@ -71,9 +71,9 @@ def test_generators():
         records[record_idx[0]] = event.results
         record_idx[0] += 1
 
-    with IterEventLoop("EL 1", consumer_queue=out_queue, output_handlers=save_record) as el1,\
-            IterEventLoop('EL two', consumer_queue=out_queue, has_results=False) as el2,\
-            IterEventLoop('EL three', consumer_queue=out_queue, has_results=False) as el3:
+    with IterEventLoop(name="EL 1", consumer_queue=out_queue, output_handlers=save_record) as el1,\
+            IterEventLoop(name='EL two', consumer_queue=out_queue, has_results=False) as el2,\
+            IterEventLoop(name='EL three', consumer_queue=out_queue, has_results=False) as el3:
 
         # Fast iterator to quickly add all of the events.
         all((el1.add_event(iter(my_gen('EL 1 - %d iter' % i, 20))),

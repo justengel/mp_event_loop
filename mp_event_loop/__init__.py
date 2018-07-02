@@ -63,15 +63,15 @@ GLOBAL_NAME = 'Global Event Loop'
 __loop__ = None
 
 
-def get_event_loop(name=None, event_queue=None, consumer_queue=None, output_handlers=None, has_results=True):
+def get_event_loop(output_handlers=None, event_queue=None, consumer_queue=None, name=None, has_results=True):
     """Return the global event loop. If it does not exist create it. It will still need to be started or used as a
     context manager using the `with` statement.
 
     Args:
-        name (str)['main']: Event loop name. This name is passed to the event process and consumer process.
+        output_handlers (list/tuple/callable)[None]: Function or list of funcs that process executed events with results.
         event_queue (Queue)[None]: Custom event queue for the event loop.
         consumer_queue (Queue)[None]: Custom consumer queue for the consumer process.
-        output_handlers (list/tuple/callable): Function or list of funcs that process executed events with results.
+        name (str)['main']: Event loop name. This name is passed to the event process and consumer process.
         has_results (bool)[True]: Should this event loop create a consumer process to run executed events
             through process_output.
     """
@@ -129,6 +129,7 @@ def add_event(target, *args, has_output=None, event_key=None, cache=False, re_re
         event_key (str)[None]: Key to identify the event or output result.
         cache (bool) [False]: If the target object should be cached.
         re_register (bool)[False]: Forcibly register this object in the other process.
+        start_loop (bool)[True]: If True start running the event loop.
         **kwargs (dict): Keyword arguments to pass into the target function.
         args (tuple)[None]: Keyword args argument.
         kwargs (dict)[None]: Keyword kwargs argument.
@@ -153,6 +154,7 @@ def add_cache_event(target, *args, has_output=None, event_key=None, re_register=
         has_output (bool) [False]: If True save the executed event and put it on the consumer/output queue.
         event_key (str)[None]: Key to identify the event or output result.
         re_register (bool)[False]: Forcibly register this object in the other process.
+        start_loop (bool)[True]: If True start running the event loop.
         **kwargs (dict): Keyword arguments to pass into the target function.
         args (tuple)[None]: Keyword args argument.
         kwargs (dict)[None]: Keyword kwargs argument.
