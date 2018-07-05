@@ -1,6 +1,7 @@
 from .mp_functions import print_exception, is_parent_process_alive, mark_task_done, LoopQueueSize, \
     stop_event_loop, run_event_loop, run_consumer_loop
 from .events import Event, CacheEvent, CacheObjectEvent
+from .mp_proxy import ProxyEvent, MpMethod, MpAttribute, MpProxy, proxy_func, proxy_output_handler
 from .event_loop import EventLoop
 
 from multiprocessing import freeze_support

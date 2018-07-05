@@ -86,6 +86,61 @@ print("Results summed:", sum(results))
 # Results summed: 14
 ```
 
+### Proxy object
+Keep an object in the main process while running commands in a separate process.
+
+```python
+import mp_event_loop
+
+
+class MpPoint(mp_event_loop.MpProxy):
+    # Pass the attributes down to the separate process
+    MP_METHODS = [mp_event_loop.MpMethod('get_z', 'set_z')]
+    MP_ATTRIBUTES = [mp_event_loop.MpAttribute('x'), mp_event_loop.MpAttribute('y')]
+
+    def __init__(self, x=0, y=0, z=0, loop=None):
+        self.x = x
+        self.y = y
+        self._z = z
+
+        super().__init__(loop=loop)
+        
+    def get_z(self):
+        return self._z
+        
+    def set_z(self, z):
+        self._z = z
+
+    # Run the function in a separate process and get the results back.
+    @mp_event_loop.proxy_func(properties=['x', 'y'])
+    def move(self, x, y, z):
+        self.x = x
+        self.y = y
+        self.z = z
+
+
+with mp_event_loop.EventLoop() as loop:
+    p = MpPoint(loop=loop)
+    p.set_z(3)  # Runs in the main process
+    assert p._z == 3 
+    assert p.get_z() == 3
+    
+    # Sends object down to separate process and runs move.
+    # The separate process has attributes x and y and uses get_z and set_z to have the correct z value.
+    p.move(1, 2, 7)
+    assert p.x == 0
+    assert p.y == 0
+    assert p._z == 3
+    assert p.get_z() == 3
+
+assert p.x == 1
+assert p.y == 2
+assert p.get_z() == 7
+```
+
+This could probably use improvement with a metaclass.
+
+
 ## How it works
 The EventLoop works by creating a Process and a Thread. The Process takes the 
 Event from a queue and runs the function. Once the Event is complete, the event is put on a result Queue/consumer Queue. 
