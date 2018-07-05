@@ -121,7 +121,7 @@ class CacheEvent(Event):
             return object_id
         return obj
 
-    def __init__(self, target, *args, has_output=True, event_key=None, re_register=False, cache=None, **kwargs):
+    def __init__(self, target, *args, has_output=True, event_key=None, re_register=False, **kwargs):
         """Create the event.
 
         Args:
@@ -130,7 +130,6 @@ class CacheEvent(Event):
             has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
             event_key (str)[None]: Key to identify the event or output result.
             re_register (bool)[False]: Forcibly register this object in the other process.
-            cache (dict)[None]: Specify a cache that you want to use.
             **kwargs (dict): Keyword arguments to pass into the target function.
             args (tuple)[None]: Keyword args argument.
             kwargs (dict)[None]: Keyword kwargs argument.
@@ -152,8 +151,6 @@ class CacheEvent(Event):
 
         # Set the Variables
         self.cache = CacheEvent.CACHE
-        if isinstance(cache, dict):
-            self.cache = cache
         self.register = []
         self.object_id = self._cache_object(obj, re_register=re_register)
         self.method_name = cmd
@@ -227,7 +224,7 @@ class CacheObjectEvent(CacheEvent):
     the main process.
     """
 
-    def __init__(self, obj, has_output=False, event_key=None, re_register=False, cache=None):
+    def __init__(self, obj, has_output=False, event_key=None, re_register=False):
         """Create the event.
 
         Args:
@@ -235,9 +232,8 @@ class CacheObjectEvent(CacheEvent):
             has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
             event_key (str)[None]: Key to identify the event or output result.
             re_register (bool)[False]: Forcibly register this object in the other process.
-            cache (dict)[None]: Specify a cache that you want to use.
         """
-        super().__init__(None, has_output=has_output, event_key=event_key, re_register=re_register, cache=cache)
+        super().__init__(None, has_output=has_output, event_key=event_key, re_register=re_register)
         self.object_id = self._cache_object(obj, re_register=re_register)
 
     def exec_(self):

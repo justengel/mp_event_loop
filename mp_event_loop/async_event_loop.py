@@ -126,7 +126,7 @@ class AsyncEventLoop(EventLoop):
             if has_output is None:
                 has_output = True
             event = AsyncCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                                    re_register=re_register, cache=self.cache)
+                                    re_register=re_register)
 
         elif isinstance(target, Event):
             event = target

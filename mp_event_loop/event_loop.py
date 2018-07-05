@@ -51,7 +51,6 @@ class EventLoop(object):
         self.name = str(name)
         self.has_results = has_results
         self._needs_to_close = False
-        self.cache = {}
 
         self.alive_event = self.alive_event_class()
         self.event_queue = event_queue
@@ -71,7 +70,8 @@ class EventLoop(object):
         Args:
             handler (function/method): Returns True or False to stop propagating the event. Must take one event arg.
         """
-        self.output_handlers.append(handler)
+        if handler not in self.output_handlers:
+            self.output_handlers.append(handler)
 
     def insert_output_handler(self, index, handler):
         """Insert a function that handles the event output into a specific order.
@@ -83,6 +83,8 @@ class EventLoop(object):
             index (int): Index position to insert the handler at.
             handler (function/method): Returns True or False to stop propagating the event. Must take one event arg.
         """
+        if handler in self.output_handlers:
+            self.output_handlers.remove(handler)
         self.output_handlers.insert(index, handler)
 
     def process_output(self, event):
@@ -161,12 +163,12 @@ class EventLoop(object):
             if has_output is None:
                 has_output = True
             event = CacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                               re_register=re_register, cache=self.cache)
+                               re_register=re_register)
         else:
             if has_output is None:
                 has_output = True
             event = CacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                               re_register=re_register, cache=self.cache)
+                               re_register=re_register)
 
         self.event_queue.put(event)
 
@@ -184,14 +186,12 @@ class EventLoop(object):
         elif isinstance(obj, Event):
             old_event = obj
             obj = old_event.target
-            event = CacheObjectEvent(obj, has_output=has_output, event_key=event_key,
-                                     re_register=re_register, cache=self.cache)
+            event = CacheObjectEvent(obj, has_output=has_output, event_key=event_key, re_register=re_register)
             event.args = old_event.args
             event.kwargs = old_event.kwargs
             event.event_key = old_event.event_key
         else:
-            event = CacheObjectEvent(obj, has_output=has_output, event_key=event_key,
-                                     re_register=re_register, cache=self.cache)
+            event = CacheObjectEvent(obj, has_output=has_output, event_key=event_key, re_register=re_register)
 
         self.event_queue.put(event)
 

@@ -154,11 +154,11 @@ class IterEventLoop(EventLoop):
             if has_output is None:
                 has_output = True
             event = IterCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                                   re_register=re_register, cache=self.cache)
+                                   re_register=re_register)
         else:
             if has_output is None:
                 has_output = True
             event = IterCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                                   re_register=re_register, cache=self.cache)
+                                   re_register=re_register)
 
         self.event_queue.put(event)
