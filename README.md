@@ -112,11 +112,11 @@ class MpPoint(mp_event_loop.MpProxy):
         self._z = z
 
     # Run the function in a separate process and get the results back.
-    @mp_event_loop.proxy_func(properties=['x', 'y'])
+    @mp_event_loop.proxy_func(properties=['x', 'y', '_z'])
     def move(self, x, y, z):
         self.x = x
         self.y = y
-        self.z = z
+        self._z = z
 
 
 with mp_event_loop.EventLoop() as loop:
