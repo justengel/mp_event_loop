@@ -15,7 +15,8 @@ except ImportError as err:
 
 
 __all__ = ['print_exception', 'is_parent_process_alive', 'mark_task_done', 'LoopQueueSize',
-           'stop_event_loop', 'run_event_loop', 'run_consumer_loop']
+           'stop_event_loop', 'run_event_loop', 'run_consumer_loop',
+           'QUEUE_TIMEOUT']
 
 
 QUEUE_TIMEOUT = 2

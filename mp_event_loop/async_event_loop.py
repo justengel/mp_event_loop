@@ -3,7 +3,7 @@ import types
 
 from .events import Event, CacheEvent
 from .event_loop import EventLoop
-from .mp_functions import mark_task_done, LoopQueueSize
+from .mp_functions import mark_task_done, LoopQueueSize, QUEUE_TIMEOUT
 
 
 __all__ = ['run_async_event_loop', 'AsyncEventLoop']
@@ -23,7 +23,7 @@ def run_async_event_loop(alive_event, event_queue, consumer_queue=None):
     for _ in LoopQueueSize(alive_event, event_queue):
         if len(async_generator_events) == 0 or not event_queue.empty():
             # Get an event an run it
-            event = event_queue.get()
+            event = event_queue.get(timeout=QUEUE_TIMEOUT)
 
             if isinstance(event, Event):
                 # Run the event
@@ -113,26 +113,56 @@ class AsyncEventLoop(EventLoop):
         args = kwargs.pop('args', args)
         kwargs = kwargs.pop('kwargs', kwargs)
 
-        if cache and isinstance(target, CacheEvent):
-            event = target
-        elif cache:
-            if isinstance(target, Event):
-                args = args or target.args
-                kwargs = kwargs or target.kwargs
-                has_output = has_output or target.has_output
-                event_key = event_key or target.event_key
-                target = target.target
-
-            if has_output is None:
-                has_output = True
-            event = AsyncCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                                    re_register=re_register)
+        if cache:
+            return self.add_cache_event(target, *args, **kwargs, has_output=has_output, event_key=event_key,
+                                        re_register=re_register)
 
         elif isinstance(target, Event):
             event = target
+
         else:
             if has_output is None:
                 has_output = True
             event = AsyncEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key)
+
+        self.event_queue.put(event)
+
+    def add_cache_event(self, target, *args, has_output=None, event_key=None, re_register=False, **kwargs):
+        """Add an event that uses cached objects.
+
+        Args:
+            target (function/method/callable/Event): Event or callable to run in a separate process.
+            *args (tuple): Arguments to pass into the target function.
+            has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
+            event_key (str)[None]: Key to identify the event or output result.
+            re_register (bool)[False]: Forcibly register this object in the other process.
+            **kwargs (dict): Keyword arguments to pass into the target function.
+            args (tuple)[None]: Keyword args argument.
+            kwargs (dict)[None]: Keyword kwargs argument.
+        """
+        args = kwargs.pop('args', args)
+        kwargs = kwargs.pop('kwargs', kwargs)
+
+        # Make sure cache is not a kwargs
+        kwargs.pop('cache', None)
+
+        if isinstance(target, CacheEvent):
+            event = target
+        elif isinstance(target, Event):
+            args = args or target.args
+            kwargs = kwargs or target.kwargs
+            has_output = has_output or target.has_output
+            event_key = event_key or target.event_key
+            target = target.target
+
+            if has_output is None:
+                has_output = True
+            event = AsyncCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
+                                    cache=self.cache, re_register=re_register)
+        else:
+            if has_output is None:
+                has_output = True
+            event = AsyncCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
+                                    cache=self.cache, re_register=re_register)
 
         self.event_queue.put(event)

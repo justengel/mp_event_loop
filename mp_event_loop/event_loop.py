@@ -164,12 +164,12 @@ class EventLoop(object):
             if has_output is None:
                 has_output = True
             event = CacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                               re_register=re_register, cache=self.cache)
+                               cache=self.cache, re_register=re_register)
         else:
             if has_output is None:
                 has_output = True
             event = CacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                               re_register=re_register, cache=self.cache)
+                               cache=self.cache, re_register=re_register)
 
         self.event_queue.put(event)
 
@@ -188,13 +188,13 @@ class EventLoop(object):
             old_event = obj
             obj = old_event.target
             event = CacheObjectEvent(obj, has_output=has_output, event_key=event_key,
-                                     re_register=re_register, cache=self.cache)
+                                     cache=self.cache, re_register=re_register)
             event.args = old_event.args
             event.kwargs = old_event.kwargs
             event.event_key = old_event.event_key
         else:
             event = CacheObjectEvent(obj, has_output=has_output, event_key=event_key,
-                                     re_register=re_register, cache=self.cache)
+                                     cache=self.cache, re_register=re_register)
 
         self.event_queue.put(event)
 

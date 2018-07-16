@@ -132,7 +132,7 @@ class CacheEvent(Event):
             return object_id
         return obj
 
-    def __init__(self, target, *args, has_output=True, event_key=None, re_register=False, cache=None, **kwargs):
+    def __init__(self, target, *args, has_output=True, event_key=None, cache=None, re_register=False, **kwargs):
         """Create the event.
 
         Args:
@@ -244,7 +244,7 @@ class CacheObjectEvent(CacheEvent):
     the main process.
     """
 
-    def __init__(self, obj, has_output=False, event_key=None, re_register=False, cache=None):
+    def __init__(self, obj, has_output=False, event_key=None, cache=None, re_register=False):
         """Create the event.
 
         Args:
@@ -254,7 +254,7 @@ class CacheObjectEvent(CacheEvent):
             re_register (bool)[False]: Forcibly register this object in the other process.
             cache (dict)[None]: Custom cache dictionary.
         """
-        super().__init__(None, has_output=has_output, event_key=event_key, re_register=re_register, cache=cache)
+        super().__init__(None, has_output=has_output, event_key=event_key, cache=cache, re_register=re_register)
         self.object_id = self._cache_object(obj, re_register=re_register)
 
     def exec_(self):

@@ -9,7 +9,7 @@ __all__ = ['ProxyEvent', 'MpMethod', 'MpAttribute', 'proxy_func', 'proxy_output_
 class ProxyEvent(CacheEvent):
     """Cache event to help an object keep the same values as a cached object in a separate process."""
 
-    def __init__(self, target, *args, properties=None, has_output=True, event_key=None, re_register=False, cache=None,
+    def __init__(self, target, *args, properties=None, has_output=True, event_key=None, cache=None, re_register=False,
                  **kwargs):
         """Create the event.
 
@@ -27,7 +27,7 @@ class ProxyEvent(CacheEvent):
         self.properties_values = {}
         self.properties = properties
         super().__init__(target, *args, has_output=has_output, event_key=event_key,
-                         re_register=re_register, cache=cache, **kwargs)
+                         cache=cache, re_register=re_register, **kwargs)
 
     def exec_(self):
         """Get the command and run it"""

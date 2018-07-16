@@ -2,7 +2,7 @@ import copy
 
 from mp_event_loop.events import Event, CacheEvent
 from mp_event_loop.event_loop import EventLoop
-from mp_event_loop.mp_functions import mark_task_done, LoopQueueSize
+from mp_event_loop.mp_functions import mark_task_done, LoopQueueSize, QUEUE_TIMEOUT
 
 
 __all__ = ['run_iter_event_loop', 'IterEventLoop']
@@ -21,7 +21,7 @@ def run_iter_event_loop(alive_event, event_queue, consumer_queue=None):
     # ===== Run the logging event loop =====
     for _ in LoopQueueSize(alive_event, event_queue):  # Iterate until a stop case then iterate the queue.qsize
         if len(iter_events) == 0 or not event_queue.empty():
-            event = event_queue.get()
+            event = event_queue.get(timeout=QUEUE_TIMEOUT)
 
             if isinstance(event, Event):
                 # Run the event
@@ -154,11 +154,11 @@ class IterEventLoop(EventLoop):
             if has_output is None:
                 has_output = True
             event = IterCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                                   re_register=re_register)
+                                   cache=self.cache, re_register=re_register)
         else:
             if has_output is None:
                 has_output = True
             event = IterCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                                   re_register=re_register)
+                                   cache=self.cache, re_register=re_register)
 
         self.event_queue.put(event)
