@@ -205,23 +205,31 @@ class EventLoop(object):
         self.stop()
 
         # Create the separate Process
+        self.start_event_loop()
+
+        # Consumer Thread
+        if self.has_results:
+            self.start_consumer_loop()
+
+        self._needs_to_close = True
+        atexit.register(self.stop)
+
+    def start_event_loop(self):
+        """Start running the event loop."""
         self.alive_event.set()
         self.event_process = self.event_loop_class(name="EventLoop-" + self.name, target=self.run_event_loop,
                                                    args=(self.alive_event, self.event_queue, self.consumer_queue))
         self.event_process.daemon = False
         self.event_process.start()
 
-        # Consumer Thread
-        if self.has_results:
-            self.consumer_process = self.consumer_loop_class(name="ConsumerLoop-" + self.name,
-                                                             target=self.run_consumer_loop,
-                                                             args=(self.alive_event, self.consumer_queue,
-                                                                   self.process_output))
-            self.consumer_process.daemon = False
-            self.consumer_process.start()
-
-        self._needs_to_close = True
-        atexit.register(self.stop)
+    def start_consumer_loop(self):
+        """Start running the consumer loop."""
+        self.consumer_process = self.consumer_loop_class(name="ConsumerLoop-" + self.name,
+                                                         target=self.run_consumer_loop,
+                                                         args=(self.alive_event, self.consumer_queue,
+                                                               self.process_output))
+        self.consumer_process.daemon = False
+        self.consumer_process.start()
 
     def run(self, events=None, output_handlers=None):
         """Run events on a separate process.
