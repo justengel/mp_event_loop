@@ -81,6 +81,17 @@ class CacheEvent(Event):
             return obj
         return ":::".join((str(obj), str(id(obj))))
 
+    @staticmethod
+    def get_registered_cache(cache_id, default=None):
+        """Return the registered cache."""
+        if default is None:
+            default = CacheEvent.CACHE
+
+        # Get the cache from the cache id
+        if cache_id not in CacheEvent.CACHE:
+            CacheEvent.CACHE[cache_id] = default
+        return CacheEvent.CACHE.get(cache_id, default)
+
     def is_object_registered(self, obj, name=None):
         """Return if the object is registered."""
         if name is None:
@@ -121,7 +132,7 @@ class CacheEvent(Event):
             return object_id
         return obj
 
-    def __init__(self, target, *args, has_output=True, event_key=None, re_register=False, **kwargs):
+    def __init__(self, target, *args, has_output=True, event_key=None, re_register=False, cache=None, **kwargs):
         """Create the event.
 
         Args:
@@ -130,6 +141,7 @@ class CacheEvent(Event):
             has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
             event_key (str)[None]: Key to identify the event or output result.
             re_register (bool)[False]: Forcibly register this object in the other process.
+            cache (dict)[None]: Custom cache dictionary.
             **kwargs (dict): Keyword arguments to pass into the target function.
             args (tuple)[None]: Keyword args argument.
             kwargs (dict)[None]: Keyword kwargs argument.
@@ -149,8 +161,13 @@ class CacheEvent(Event):
             obj = target
             cmd = None
 
+        # Setup for multiple caches
+        if cache is None:
+            cache = CacheEvent.CACHE
+        self.cache_id = str(id(cache))
+        self.cache = self.get_registered_cache(self.cache_id, cache)
+
         # Set the Variables
-        self.cache = CacheEvent.CACHE
         self.register = []
         self.object_id = self._cache_object(obj, re_register=re_register)
         self.method_name = cmd
@@ -169,6 +186,7 @@ class CacheEvent(Event):
         Do not pass the target. Pass the items to be registered, the target object_id and method_name.
         """
         state = super().__getstate__()
+        state['cache_id'] = self.cache_id
         state['register'] = self.register
         state['object_id'] = self.object_id
         state['method_name'] = self.method_name
@@ -180,7 +198,9 @@ class CacheEvent(Event):
 
         Register all of the cached items. Get the target from the target object_id and method_name.
         """
-        self.cache = CacheEvent.CACHE
+        # Get the cache from the cache id
+        self.cache_id = state.get('cache_id', str(id(CacheEvent.CACHE)))
+        self.cache = self.get_registered_cache(self.cache_id)
 
         # Register the cached items
         self.register = []
@@ -224,7 +244,7 @@ class CacheObjectEvent(CacheEvent):
     the main process.
     """
 
-    def __init__(self, obj, has_output=False, event_key=None, re_register=False):
+    def __init__(self, obj, has_output=False, event_key=None, re_register=False, cache=None):
         """Create the event.
 
         Args:
@@ -232,8 +252,9 @@ class CacheObjectEvent(CacheEvent):
             has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
             event_key (str)[None]: Key to identify the event or output result.
             re_register (bool)[False]: Forcibly register this object in the other process.
+            cache (dict)[None]: Custom cache dictionary.
         """
-        super().__init__(None, has_output=has_output, event_key=event_key, re_register=re_register)
+        super().__init__(None, has_output=has_output, event_key=event_key, re_register=re_register, cache=cache)
         self.object_id = self._cache_object(obj, re_register=re_register)
 
     def exec_(self):

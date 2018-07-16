@@ -9,7 +9,8 @@ __all__ = ['ProxyEvent', 'MpMethod', 'MpAttribute', 'proxy_func', 'proxy_output_
 class ProxyEvent(CacheEvent):
     """Cache event to help an object keep the same values as a cached object in a separate process."""
 
-    def __init__(self, target, *args, properties=None, has_output=True, event_key=None, re_register=False, **kwargs):
+    def __init__(self, target, *args, properties=None, has_output=True, event_key=None, re_register=False, cache=None,
+                 **kwargs):
         """Create the event.
 
         Args:
@@ -18,6 +19,7 @@ class ProxyEvent(CacheEvent):
             has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
             event_key (str)[None]: Key to identify the event or output result.
             re_register (bool)[False]: Forcibly register this object in the other process.
+            cache (dict)[None]: Custom cache dictionary.
             **kwargs (dict): Keyword arguments to pass into the target function.
             args (tuple)[None]: Keyword args argument.
             kwargs (dict)[None]: Keyword kwargs argument.
@@ -25,7 +27,7 @@ class ProxyEvent(CacheEvent):
         self.properties_values = {}
         self.properties = properties
         super().__init__(target, *args, has_output=has_output, event_key=event_key,
-                         re_register=re_register, **kwargs)
+                         re_register=re_register, cache=cache, **kwargs)
 
     def exec_(self):
         """Get the command and run it"""
@@ -106,7 +108,8 @@ def proxy_func(func=None, properties=None):
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             if hasattr(self, '__loop__') and self.__loop__:
-                event = ProxyEvent(getattr(self, name), *args, **kwargs, properties=properties)
+                event = ProxyEvent(getattr(self, name), *args, **kwargs,
+                                   properties=properties, cache=self.__loop__.cache)
                 self.__loop__.add_cache_event(event)
             else:
                 func(self, *args, **kwargs)
@@ -120,7 +123,8 @@ def proxy_func(func=None, properties=None):
             @wraps(func)
             def wrapper(self, *args, **kwargs):
                 if hasattr(self, '__loop__') and self.__loop__:
-                    event = ProxyEvent(getattr(self, name), *args, **kwargs, properties=properties)
+                    event = ProxyEvent(getattr(self, name), *args, **kwargs,
+                                       properties=properties, cache=self.__loop__.cache)
                     self.__loop__.add_cache_event(event)
                 else:
                     func(self, *args, **kwargs)

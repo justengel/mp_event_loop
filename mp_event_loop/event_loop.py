@@ -58,6 +58,7 @@ class EventLoop(object):
         self.event_process = None
         self.consumer_process = None  # Thread to handle results
 
+        self.cache = {}
         self.output_handlers = [hndlr for hndlr in output_handlers]
 
     # ========== Output Management ==========
@@ -163,12 +164,12 @@ class EventLoop(object):
             if has_output is None:
                 has_output = True
             event = CacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                               re_register=re_register)
+                               re_register=re_register, cache=self.cache)
         else:
             if has_output is None:
                 has_output = True
             event = CacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                               re_register=re_register)
+                               re_register=re_register, cache=self.cache)
 
         self.event_queue.put(event)
 
@@ -186,12 +187,14 @@ class EventLoop(object):
         elif isinstance(obj, Event):
             old_event = obj
             obj = old_event.target
-            event = CacheObjectEvent(obj, has_output=has_output, event_key=event_key, re_register=re_register)
+            event = CacheObjectEvent(obj, has_output=has_output, event_key=event_key,
+                                     re_register=re_register, cache=self.cache)
             event.args = old_event.args
             event.kwargs = old_event.kwargs
             event.event_key = old_event.event_key
         else:
-            event = CacheObjectEvent(obj, has_output=has_output, event_key=event_key, re_register=re_register)
+            event = CacheObjectEvent(obj, has_output=has_output, event_key=event_key,
+                                     re_register=re_register, cache=self.cache)
 
         self.event_queue.put(event)
 
