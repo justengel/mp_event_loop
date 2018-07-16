@@ -198,6 +198,10 @@ class EventLoop(object):
 
         self.event_queue.put(event)
 
+    def is_object_cached(self, obj):
+        """Return if the object is in the cache."""
+        return CacheEvent.is_object_registered(obj, cache=self.cache)
+
     # ========== Process Management ==========
     def is_running(self):
         """Return if the event loop is running."""

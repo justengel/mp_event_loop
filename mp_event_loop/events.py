@@ -92,11 +92,14 @@ class CacheEvent(Event):
             CacheEvent.CACHE[cache_id] = default
         return CacheEvent.CACHE.get(cache_id, default)
 
-    def is_object_registered(self, obj, name=None):
+    @classmethod
+    def is_object_registered(cls, obj, name=None, cache=None):
         """Return if the object is registered."""
         if name is None:
-            name = self.get_object_key(obj)
-        return obj is not None and self.cache.get(name, None) == obj
+            name = cls.get_object_key(obj)
+        if cache is None:
+            cache = CacheEvent.CACHE
+        return obj is not None and cache.get(name, None) == obj
 
     def register_process_object(self, obj, name=None):
         """Register a global object which can be accessed.
@@ -119,7 +122,7 @@ class CacheEvent(Event):
         """
         # Check if the object needs to be created in the other process
         object_id = self.get_object_key(obj)
-        if re_register or not self.is_object_registered(obj, object_id):
+        if re_register or not self.is_object_registered(obj, object_id, cache=self.cache):
             self.register_process_object(obj, object_id)
             self.register.append([object_id, obj])  # Name, object
 
@@ -128,7 +131,7 @@ class CacheEvent(Event):
     def _key_cached_object(self, obj):
         """If the object is cached return the key for that object."""
         object_id = self.get_object_key(obj)
-        if self.is_object_registered(obj, object_id):
+        if self.is_object_registered(obj, object_id, cache=self.cache):
             return object_id
         return obj
 
