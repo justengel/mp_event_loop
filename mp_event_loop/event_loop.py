@@ -289,12 +289,11 @@ class EventLoop(object):
         # If has_results clear and join the consumer queue and process
         kwargs = {}
         if self.has_results:
-            kwargs['consumer_queue'] = self.consumer_queue
             kwargs['consumer_process'] = self.consumer_process
             self.consumer_process = None
 
         # Stop and clear the process and queue variables
-        stop_event_loop(self.alive_event, self.event_queue, self.event_process, **kwargs)
+        stop_event_loop(self.alive_event, self.event_process, **kwargs)
         self.event_process = None
 
     def close(self):

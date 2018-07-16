@@ -1,6 +1,7 @@
 import os
 import sys
 import traceback
+from queue import Empty
 
 from .events import Event
 
@@ -17,7 +18,7 @@ __all__ = ['print_exception', 'is_parent_process_alive', 'mark_task_done', 'Loop
            'stop_event_loop', 'run_event_loop', 'run_consumer_loop']
 
 
-STOP_EXECUTION = "##=STOP EXECUTION===##"
+QUEUE_TIMEOUT = 2
 
 
 def print_exception(exc, msg=None):
@@ -72,14 +73,12 @@ class LoopQueueSize(object):
         return "Continue"
 
 
-def stop_event_loop(alive_event, event_queue=None, event_process=None, consumer_queue=None, consumer_process=None):
+def stop_event_loop(alive_event, event_process=None, consumer_process=None):
     """Stop the event loop and consumer loop.
 
     Args:
         alive_event (multiprocessing.Event): Event to signal that the process is closing and exit the loop.
-        event_queue (multiprocessing.Queue/multiprocessing.JoinableQueue)[None]: Queue of events.
         event_process (Process/Thread)[None]: Multiprocessing process to join and quit
-        consumer_queue (multiprocessing.Queue/multiprocessing.JoinableQueue)[None]: Output queue of events.
         consumer_process (Thread/Process)[None]: Thread to join and quit. (Thread that consumes)
     """
     try:
@@ -89,19 +88,11 @@ def stop_event_loop(alive_event, event_queue=None, event_process=None, consumer_
 
     # Stop the event loop
     try:
-        event_queue.put(STOP_EXECUTION)
-    except (AttributeError, Exception):
-        pass
-    try:
         event_process.join()
     except (AttributeError, Exception):
         pass
 
     # Stop the consumer loop
-    try:
-        consumer_queue.put(STOP_EXECUTION)
-    except (AttributeError, Exception):
-        pass
     try:
         consumer_process.join()
     except (AttributeError, Exception):
@@ -118,14 +109,17 @@ def run_event_loop(alive_event, event_queue, consumer_queue=None):
     """
     # ===== Run the logging event loop =====
     for _ in LoopQueueSize(alive_event, event_queue):  # Iterate until a stop case then iterate the queue.qsize
-        event = event_queue.get()
-        if isinstance(event, Event):
-            # Run the event
-            event.exec_()
-            if consumer_queue and event.has_output:
-                consumer_queue.put(event)
+        try:
+            event = event_queue.get(timeout=QUEUE_TIMEOUT)
+            if isinstance(event, Event):
+                # Run the event
+                event.exec_()
+                if consumer_queue and event.has_output:
+                    consumer_queue.put(event)
 
-        mark_task_done(event_queue)
+            mark_task_done(event_queue)
+        except Empty:
+            pass
 
     alive_event.clear()
 
@@ -139,11 +133,14 @@ def run_consumer_loop(alive_event, consumer_queue, process_output):
         process_output (callable): Function/method to consume the events.
     """
     for _ in LoopQueueSize(alive_event, consumer_queue):
-        event = consumer_queue.get()
-        if isinstance(event, Event):
-            # Process the output
-            process_output(event)
+        try:
+            event = consumer_queue.get(timeout=QUEUE_TIMEOUT)
+            if isinstance(event, Event):
+                # Process the output
+                process_output(event)
 
-        mark_task_done(consumer_queue)
+            mark_task_done(consumer_queue)
+        except Empty:
+            pass
 
     alive_event.clear()
