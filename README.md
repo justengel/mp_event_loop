@@ -1,7 +1,8 @@
 # mp_event_loop
 
 Library for long running multiprocessing event loops. This library provides an EventLoop that will run events in a 
-separate process.
+separate process. The purpose of this library is to manage a long running process while a GUI is running in the main 
+thread. Tasks can be offloaded to another processes continuously while the GUI is running. 
 
 
     Warning:
