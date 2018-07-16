@@ -59,24 +59,24 @@ def test_cache_object():
             return True
 
     with mp_event_loop.get_event_loop(output_handlers=save_result_object) as loop:
-        loop.add_event(print, "=====", a, "=====")  # Prints a correctly "ABC(a=1, b=2, c=0)"
+        loop.add_event(print, "=====", a, "=====", "(Expected a=1, b=2, c=0)")  # Prints correctly "ABC(a=1, b=2, c=0)"
         loop.add_event(a.calc_c)  # Does calculation, but doesn't send the result back to us
         # The other process has the correct c value but never passes it back
 
         # We are passing this a's values down which is 1, 2, 0. We never got the result of "a.calc_c()"
-        loop.add_event(print, "No cache", a)
+        loop.add_event(print, "No cache", a, "(Expected a=1, b=2, c=0)")
 
         # Use caching events
         loop.add_event(a.calc_c, cache=True)
-        loop.add_event(print, "Cached", a, cache=True)
+        loop.add_event(print, "Cached", a, "(Expected a=1, b=2, c=3)", cache=True)
 
         # Try getting the object back with save_result_object
         loop.cache_object(a, has_output=True, event_key='a')
-        print("Main process", a)
-        loop.add_event(print, "No cache", a)  # This fails, because the event has not run and come back yet.
-        loop.add_event(print, "Cached", a, cache=True)
+        print("Main process", a, "(Should print near top)")
+        loop.add_event(print, "No cache", a, "(Expected a=1, b=2, c=0)")  # Fails: Event has not run and come back yet.
+        loop.add_event(print, "Cached", a, "(Expected a=1, b=2, c=3)", cache=True)
 
-    print("Main process after event loop", a)
+    print("Main process after event loop", a, "(Expected a=1, b=2, c=3)")
 
 
 if __name__ == '__main__':
