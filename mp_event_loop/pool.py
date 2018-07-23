@@ -8,6 +8,8 @@ __all__ = ['Pool']
 class Pool(EventLoop):
     """Create multiple long running multiprocessing event loops."""
 
+    EVENT_LOOP = EventLoop
+
     def __init__(self, processes=1, output_handlers=None, event_queue=None, consumer_queue=None, name='main', has_results=True):
         """Create the event loop.
 
@@ -24,27 +26,25 @@ class Pool(EventLoop):
         super().__init__(output_handlers=output_handlers, event_queue=event_queue, consumer_queue=consumer_queue,
                          name=name, has_results=has_results)
 
-    def start(self):
-        """Start running the separate processes which runs an event loop."""
-        self.stop()
-
+    def start_event_loop(self):
+        """Start running the event loop."""
         # Signal that the process is alive
         self.alive_event.set()
 
         # Create multiple processes
         for i in range(self.processes):
-            el = EventLoop(name=self.name + '_' + str(i), has_results=False,
-                           event_queue=self.event_queue, consumer_queue=self.consumer_queue)
+            el = self.EVENT_LOOP(name=self.name + '_' + str(i), has_results=False,
+                                 event_queue=self.event_queue, consumer_queue=self.consumer_queue)
             el.alive_event = self.alive_event
             el.start_event_loop()
             self.loops.append(el)
 
-        # Consumer Thread
-        if self.has_results:
-            self.start_consumer_loop()
-
-        self._needs_to_close = True
-        atexit.register(self.stop)
+    def is_event_process_alive(self):
+        """Return if the event process is alive."""
+        try:
+            return any((loop.is_event_process_alive() for loop in self.loops))
+        except AttributeError:
+            return False
 
     def stop(self):
         """Stop running the process.

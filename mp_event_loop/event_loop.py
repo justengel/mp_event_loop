@@ -207,6 +207,20 @@ class EventLoop(object):
         """Return if the event loop is running."""
         return self.alive_event.is_set()
 
+    def is_event_process_alive(self):
+        """Return if the event process is alive."""
+        try:
+            return self.event_process.is_alive()
+        except AttributeError:
+            return False
+
+    def is_consumer_process_alive(self):
+        """Return if the consumer process is alive."""
+        try:
+            return self.consumer_process.is_alive()
+        except AttributeError:
+            return False
+
     def start(self):
         """Start running the separate process which runs an event loop."""
         self.stop()
@@ -284,8 +298,17 @@ class EventLoop(object):
 
     def wait(self):
         """Wait for the event queue and consumer queue to finish processing."""
-        self.event_queue.join()
-        self.consumer_queue.join()
+        try:
+            if self.is_event_process_alive():
+                self.event_queue.join()
+        except AttributeError:
+            pass
+
+        try:
+            if self.is_consumer_process_alive():
+                self.consumer_queue.join()
+        except AttributeError:
+            pass
 
     def stop(self):
         """Stop running the process.

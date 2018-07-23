@@ -18,7 +18,7 @@ def test_pool():
         pool.add_event(get_proc, 7 ,8)
         assert len(results) != 4
 
-    assert len(results) == 4
+    assert len(results) == 4, results
     assert 3 in results
     assert 7 in results
     assert 11 in results
