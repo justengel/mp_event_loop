@@ -63,7 +63,7 @@ print("Results summed:", summed)
 
 Alternative approach
 ```python
-import mp_event_loop as mp_event_loop
+import mp_event_loop
 
 def add_one(value):
     return value + 1
@@ -87,24 +87,141 @@ print("Results summed:", sum(results))
 # Results summed: 14
 ```
 
-### Proxy object
-Keep an object in the main process while running commands in a separate process.
+## How it works
+The EventLoop works by creating a Process and a Thread. The Process takes the 
+Event from a queue and runs the function. Once the Event is complete, the event is put on a result Queue/consumer Queue. 
+The Thread takes the Event from the result Queue and passes it to all of the output_handlers in the EventLoop. 
+If one of the output_handlers returns True the event will stop propagating to the other output_handlers.
+
+Because of locking mechanisms in the Queue and message passing between processes this will be slow. You will probably 
+only use this for concurrency. This is usefully for non-IO concurrency where Threads may impact performance.
+
+I created this library as a test to understand how multiprocessing works. I am attempting to use multiprocessing for 
+tcp communication and parsing data. I want the parsing to happen in a separate process, but I want to access the 
+parsed data in a thread allowing a GUI to run.
+
+
+## Object Persistence
+The overall goal for this library is a long running process where tasks can run easily. Along with this is object 
+persistence. You can easily send an object to a separate process and run a task on it. The difficult part is getting
+the values from that object back. The multiprocessing library already as a good way of doing this through the Manager 
+class. However, I found this approach difficult to use with PySide.
+
+```python
+# example problem
+import mp_event_loop
+
+
+class ABC(object):
+    def __init__(self, a, b, c):
+        self.a = a
+        self.b = b
+        self.c = c
+
+    def calc_c(self):
+        self.c = self.a + self.b
+
+    def __repr__(self):
+        return "ABC(a=%d, b=%d, c=%d)" % (self.a, self.b, self.c)
+        
+
+a = ABC(1, 2, 0)
+
+with mp_event_loop.get_event_loop(has_results=False) as loop:
+    loop.add_event(print, "=====", a, "=====")  # Prints a correctly "ABC(a=1, b=2, c=0)"
+    loop.add_event(a.calc_c)  # Does calculation, but doesn't send the result back to us
+    # The other process has the correct c value but never passes it back to the correct object
+
+    # We are passing this a's values down which is 1, 2, 0. We never got the result of "a.calc_c()"
+    loop.add_event(print, a)   # Prints the 'a' that the main thread passed to the process "ABC(a=1, b=2, c=0)"
+```
+
+This library tries to solve this problem in two ways.
+
+The first way I label as caching. The CacheEvent solves this by saving a reference to an object in a dictionary. 
+The object is pickled to a separate process one time and saved. Every subsequent CacheEvent uses a key (id) to 
+retrieve the cached object and run in the other process with that cached object
+
+The second way is through a proxy where an object only exists in the other process. My approach to a proxy has the 
+main process keep a reference to a simple object. When that object is pickled it creates an object in the other 
+process. It creates this object once then uses caching to save a reference to that object. The object only lives in 
+the other process. You can controll the object by calling function in the main process which really just sends an 
+event to run on the other process. If you want an attribute value or getter method value exposed on the main process 
+then you need to define `PROPERTIES` and `GETTERS`. Note: this is merely a solution I found to work with PySide and 
+creating widgets dynamically in another process. I plan on having another library named qt_concurrency to handle the 
+specifics between long running multiprocessing and Qt.
+
+
+### CacheEvent
+The above example shows that `a` in the main process is never changing. `a.calc_c()` is run the other process, but the 
+other process does not save the object `a`. In the scope of the other process `a` with `a.calc_c()` dies and goes away.
+The main process `a` never changed and still has the values of a=1, b=2, c=0.
+
+To solve this problem I created some caching events. These events save object with an id. The other process is given 
+the object_id and uses it to get the correct object.
+
+```python
+a = ABC(1, 2, 0)
+
+with mp_event_loop.get_event_loop(has_results=False) as loop:
+    loop.add_event(print, "=====", a, "=====")  # Prints a correctly "ABC(a=1, b=2, c=0)"
+    
+    # You can manually cache an object
+    # loop.cache_object(a)
+    # Only needed for object arguments 'loop.add_event(my_func, a, cache=True)' only my_func is registered and cached.
+    # If 'a' is cached it will use it by using a's object_id, but it will not register and cache the 'a' object.  
+    
+    # Or pass in cache=True or loop.add_cache_event
+    loop.add_event(a.calc_c, cache=True)  # Keeps track of an id for 'a' and saves 'a' in the separate process
+    
+    # DO NOT pass a down to the other process. Instead pass an object_id for 'a'. The other process will use the 
+    # object_id to get the stored 'a' object and use that object.
+    loop.add_event(print, a, cache=True)  # Prints the cached 'a' object correctly "ABC(a=1, b=2, c=3)"
+```
+
+While this now works like we want it to there is still a problem. `a` in the main process does not have the correct 
+values. You can solve this with tedious event handling shown below.
 
 ```python
 import mp_event_loop
 
+a = ABC(1, 2, 0)
 
-class MpPoint(mp_event_loop.MpProxy):
-    # Pass the attributes down to the separate process
-    MP_METHODS = [mp_event_loop.MpMethod('get_z', 'set_z')]
-    MP_ATTRIBUTES = [mp_event_loop.MpAttribute('x'), mp_event_loop.MpAttribute('y')]
 
-    def __init__(self, x=0, y=0, z=0, loop=None):
+def save_object(event):
+    if event.event_key == 'a':
+        a.a = event.results.a
+        a.b = event.results.b
+        a.c = event.results.c
+        return True
+
+
+with mp_event_loop.get_event_loop(output_handlers=save_object) as loop:
+    loop.add_event(print, "=====", a, "=====")  # Prints a correctly "ABC(a=1, b=2, c=0)"
+    loop.add_event(a.calc_c)  # Does calculation and sends the event back through the output_handler
+    # However we have no way of identifying what event/object was returned back to us (in save_object)
+    
+    # Try getting the object back with save_result_object
+    loop.add_event(a.calc_c, event_key='a')  # We can use the event_key to identify the returned event (in save_object)
+    print("Main process", a)  # The multiprocessing has not happened yet. No immediate results.
+
+print("Main process after event loop", a)  # The loop has now waited for all tasks to complete and results are correct.
+```
+
+### Proxy object
+This is by far the most challenging part of this library. For my application I don't care about immediate results. I 
+care about concurrency and long running tasks being done in a separate process allowing a GUI to live.
+
+Below is example code for a Proxy. The proxy object only has access to 
+
+```python
+import mp_event_loop
+
+class Point(object):
+    def __init__(self, x=0, y=0, z=0):
         self.x = x
         self.y = y
         self._z = z
-
-        super().__init__(loop=loop)
         
     def get_z(self):
         return self._z
@@ -112,19 +229,29 @@ class MpPoint(mp_event_loop.MpProxy):
     def set_z(self, z):
         self._z = z
 
-    # Run the function in a separate process and get the results back.
-    @mp_event_loop.proxy_func(properties=['x', 'y', '_z'])
     def move(self, x, y, z):
         self.x = x
         self.y = y
         self._z = z
+        
+class MpPoint(mp_event_loop.Proxy):
+    PROXY_CLASS = Point
+    PROPERTIES = ['x', 'y']
+    GETTERS = ['get_z']
+
+    def __init__(self, x=0, y=0, z=0, loop=None):
+        super().__init__(loop=loop)
+        self.x = x
+        self.y = y
+        self._z = z
+    
 
 
 with mp_event_loop.EventLoop() as loop:
     p = MpPoint(loop=loop)
-    p.set_z(3)  # Runs in the main process
-    assert p._z == 3 
-    assert p.get_z() == 3
+    p.set_z(3)  # Runs in the other process
+    assert p._z != 3 
+    assert p.get_z() != 3
     
     # Sends object down to separate process and runs move.
     # The separate process has attributes x and y and uses get_z and set_z to have the correct z value.
@@ -138,44 +265,6 @@ assert p.x == 1
 assert p.y == 2
 assert p.get_z() == 7
 ```
-
-This could probably use improvement with a metaclass.
-
-
-## How it works
-The EventLoop works by creating a Process and a Thread. The Process takes the 
-Event from a queue and runs the function. Once the Event is complete, the event is put on a result Queue/consumer Queue. 
-The Thread takes the Event from the result Queue and passes it to all of the output_handlers in the EventLoop. 
-If one of the output_handlers returns True the event will stop propagating to the other output_handlers.
-
-Because of locking mechanisms in the Queue and message passing between processes this will be slow. You will probably 
-only use this for concurrency. This is usefully for non-IO concurrency where Threads may impact performance.
-
-I created this library as a test to understand how multiprocessing works. I am attempting to use multiprocessing for 
-tcp communication and parsing data. I want the parsing to happen in a separate process, but I want to access the 
-parsed data in a thread allowing a GUI to run. Concurrency and performance is vital for this GUI.
-
-## Example
-
-```python
-import mp_event_loop
-
-def add_one(value):
-    return value + 1
-    
-    
-results = []
-
-def save_results(event):
-    results.append(event.results)
-    
-with mp_event_loop.EventLoop(output_handlers=save_results) as loop:
-    loop.add_event(add_one, args=(1,))
-    loop.add_event(add_one, args=(2,))
-    loop.add_event(add_one, args=(3,))
-    
-assert results == [2, 3, 4]
-```  
 
 ## Events
 Events simply take in a function and some arguments and execute them in a separate process. Theoretically, you could
@@ -283,128 +372,6 @@ with mp_event_loop.EventLoop(output_handlers=[print_my_event, print_event]) as l
 # Normal Event 5
 # My Event [0, 1, 2, 3, 4]
 ```
-
-## Object State
-One thing to remember is that objects in the other process will have a different state than objects in the main process.
-
-This can be seen with the code below.
-
-```python
-import mp_event_loop
-
-
-class ABC(object):
-    def __init__(self, a, b, c):
-        self.a = a
-        self.b = b
-        self.c = c
-
-    def calc_c(self):
-        self.c = self.a + self.b
-
-    def __repr__(self):
-        return "ABC(a=%d, b=%d, c=%d)" % (self.a, self.b, self.c)
-        
-
-a = ABC(1, 2, 0)
-
-with mp_event_loop.get_event_loop(has_results=False) as loop:
-    loop.add_event(print, "=====", a, "=====")  # Prints a correctly "ABC(a=1, b=2, c=0)"
-    loop.add_event(a.calc_c)  # Does calculation, but doesn't send the result back to us
-    # The other process has the correct c value but never passes it back
-
-    # We are passing this a's values down which is 1, 2, 0. We never got the result of "a.calc_c()"
-    loop.add_event(print, a)   # Prints the 'a' that the main thread passed to the process "ABC(a=1, b=2, c=0)"
-```
-
-This example shows that `a` in the main process is never changing. `a.calc_c()` is run the other process, but the 
-other process does not save the object `a`. In the scope of the other process `a` with `a.calc_c()` dies and goes away.
-The main process `a` never changed and still has the values of a=1, b=2, c=0.
-
-To solve this problem I created some caching events. These events save object with an id. The other process is given 
-the object_id and uses it to get the correct object.
-
-```python
-a = ABC(1, 2, 0)
-
-with mp_event_loop.get_event_loop(has_results=False) as loop:
-    loop.add_event(print, "=====", a, "=====")  # Prints a correctly "ABC(a=1, b=2, c=0)"
-    
-    # You can manually cache an object
-    # loop.cache_object(a)
-    # Only needed for object arguments 'loop.add_event(my_func, a, cache=True)' only my_func is registered and cached.
-    # If 'a' is cached it will use it by using a's object_id, but it will not register and cache the 'a' object.  
-    
-    # Or pass in cache=True or loop.add_cache_event
-    loop.add_event(a.calc_c, cache=True)  # Keeps track of an id for 'a' and saves 'a' in the separate process
-    
-    # DO NOT pass a down to the other process. Instead pass an object_id for 'a'. The other process will use the 
-    # object_id to get the stored 'a' object and use that object.
-    loop.add_event(print, a, cache=True)  # Prints the cached 'a' object correctly "ABC(a=1, b=2, c=3)"
-```
-
-### Object State - passing the object back to the main process
-While caching the object in the other process may be useful it is still limited. The biggest drawback is that the main
-process does not have the correct object values. If you want the objects to keep the correct state it is advised to use
-the multiprocessing shared memory.
-
-If shared memory is not your desire and you don't need the result immediately, you can use the mp_event_loop as a 
-form of message passing to maintain an object's state.
-
-```python
-import mp_event_loop
-
-a = ABC(1, 2, 0)
-
-
-def save_object(event):
-    if event.event_key == 'a':
-        a.a = event.results.a
-        a.b = event.results.b
-        a.c = event.results.c
-        return True
-
-
-with mp_event_loop.get_event_loop(output_handlers=save_object) as loop:
-    loop.add_event(print, "=====", a, "=====")  # Prints a correctly "ABC(a=1, b=2, c=0)"
-    loop.add_event(a.calc_c)  # Does calculation, but doesn't send the result back to us
-    # The other process has the correct c value but never passes it back
-
-    # We are passing this a's values down which is 1, 2, 0. We never got the result of "a.calc_c()"
-    loop.add_event(print, "No cache", a)
-    
-    # Use caching events
-    loop.add_event(a.calc_c, cache=True)
-    loop.add_event(print, "Cached", a, cache=True)
-
-    # Try getting the object back with save_result_object
-    loop.cache_object(a, has_output=True, event_key='a')  # has_output=True sends the event back into the consumer queue
-    print("Main process", a)
-    loop.add_event(print, "No cache", a)  # This fails, because the event has not run and come back yet.
-    loop.add_event(print, "Cached", a, cache=True)
-
-print("Main process after event loop", a)
-```
-
-The output of the above code looks like
-
-    Main process ABC(a=1, b=2, c=0)
-    ===== ABC(a=1, b=2, c=0) =====
-    No cache ABC(a=1, b=2, c=0)
-    Cached ABC(a=1, b=2, c=3)
-    No cache ABC(a=1, b=2, c=0)
-    Cached ABC(a=1, b=2, c=3)
-    Main process after event loop ABC(a=1, b=2, c=3)
-    
-    Process finished with exit code 0
-    
-Take note that the first thing printed is `Main process ABC(a=1, b=2, c=0)`. Even though the print statement is near 
-the end of the with statement this is the first thing printed. All of the events are thrown on a queue and are executed
-in a separate process later. You have to wait until after all of the events are processed to get the correct results.
-`Main process after event loop ABC(a=1, b=2, c=3)` is correct, because it is outside of the with statement and waits 
-until all events are complete.
-
-I hope you read all that carefully and fully understand how it works before you use it. Enjoy.
 
 ## Pickling
 If pickling is annoying you then you can use a different multiprocessing library.

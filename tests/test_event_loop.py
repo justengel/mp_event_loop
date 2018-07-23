@@ -1,4 +1,6 @@
 import multiprocessing as mp
+import time
+
 import mp_event_loop
 
 
@@ -78,7 +80,7 @@ def test_concurrency():
 
 
 def test_event_loop():
-    CACHE = True
+    CACHE = False
     records = []
 
     def save_record(event):
@@ -104,7 +106,7 @@ def test_event_loop():
     index = 0
     for expected in range(2, 8):
         try:
-            assert records[index] == expected
+            assert records[index] == expected, 'Value is {0} expected {1}'.format(records[index], expected)
         except IndexError as err:
             raise IndexError("Index " + repr(index) + " does not exist") from err
         index += 1

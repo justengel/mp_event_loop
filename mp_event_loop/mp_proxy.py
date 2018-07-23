@@ -1,33 +1,74 @@
-import collections
-from functools import wraps
-from .events import CacheEvent
+"""
+Proxy an object by creating a new object in a separate process and accessing it's values in the main process.
+
+This is a special fun challenge.
+
+The main way this works is by keeping a cache (dictionary) which is a sort of global record of objects. You initially
+create the proxy which stores a reference to the class of an object it is supposed to proxy. When the proxy is
+initially created it sends an event to the event loop to cache the object. This sends an identifier for the cache,
+loop, proxy, and sends an indicator letting the process know if the object needs to be the proxy or the real object.
+
+The first time this is done the separate process will create the object (__setstate__). Once the object is created it
+will register the object with the global cache. To sync values the other process needs to send the object back to the
+main thread. This will send the state with identifiers for the cache, loop, and proxy as well a list of property
+values and getter values. From the identifiers the object will find the correct cache and loop and will use the cache
+to get the correct proxy object. The proxy object values will be set with the sent property and getter values.
+
+Everything is handled with the passing back and forth of object to the other process and back to the main process.
+This only works because of the sort of global caching system. I say sort of because each mp_event_loop.EventLoop has
+it's own cache. In addition because there is a global cache at CacheEvent.CACHE each process uses this cache which is
+separate from the main cache. We actually store each cache in the global CacheEvent.CACHE, so we can have separate
+caches in the main process allowing multiple event loops with separate caches ... This systems basically saves
+everything to cache and passes id's back and forth in order to keep track of objects.
+"""
+from .events import Event, CacheEvent
 
 
-__all__ = ['ProxyEvent', 'MpMethod', 'MpAttribute', 'proxy_func', 'proxy_output_handler', 'MpProxy']
+__all__ = ['ProxyEvent', 'proxy_output_handler', 'Proxy']
 
 
-class ProxyEvent(CacheEvent):
-    """Cache event to help an object keep the same values as a cached object in a separate process."""
+def _get_getter_value(func):
+    """Return the getter function value or None."""
+    try:
+        return func()
+    except:
+        return None
 
-    def __init__(self, target, *args, properties=None, has_output=True, event_key=None, cache=None, re_register=False,
-                 **kwargs):
+
+def _call_in_process(loop, obj, method_name=None, *args, **kwargs):
+    """Call the target function in a separate process."""
+    if loop is not None:
+        pe = ProxyEvent(obj, method_name, *args, **kwargs)
+        loop.add_event(pe)
+        return True
+    return False
+
+
+class ProxyEvent(Event):
+    """The ProxyEvent needs nothing done to it. All of the syncing and caching is done in the Proxy.__setstate__."""
+    def __init__(self, obj, method_name=None, *args, has_output=True, event_key=None, **kwargs):
         """Create the event.
 
         Args:
-            target (function/method/callable): Object to run.
+            obj (Proxy): Object representing an id to run a method with.
+            method_name (str): Method name for the object.
             *args (tuple): Arguments to pass into the target function.
             has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
             event_key (str)[None]: Key to identify the event or output result.
-            re_register (bool)[False]: Forcibly register this object in the other process.
-            cache (dict)[None]: Custom cache dictionary.
             **kwargs (dict): Keyword arguments to pass into the target function.
             args (tuple)[None]: Keyword args argument.
             kwargs (dict)[None]: Keyword kwargs argument.
         """
-        self.properties_values = {}
-        self.properties = properties
-        super().__init__(target, *args, has_output=has_output, event_key=event_key,
-                         cache=cache, re_register=re_register, **kwargs)
+        # Get proper args and kwargs
+        args = kwargs.pop('args', args)
+        kwargs = kwargs.pop('kwargs', kwargs)
+
+        # Set the Variables
+        self.object = obj  # This should be a Proxy object
+        self.method_name = method_name
+
+        # Initialize
+        super().__init__(obj, *args, **kwargs, has_output=has_output, event_key=event_key)
 
     def exec_(self):
         """Get the command and run it"""
@@ -38,9 +79,6 @@ class ProxyEvent(CacheEvent):
             # Run the command
             try:
                 self.results = self.run()
-                if self.object and self.properties:
-                    for prop in self.properties:
-                        self.properties_values[prop] = getattr(self.object, prop)
             except Exception as err:
                 self.error = err
         elif self.target is None and self.object is not None:
@@ -54,8 +92,9 @@ class ProxyEvent(CacheEvent):
         Do not pass the target. Pass the items to be registered, the target object_id and method_name.
         """
         state = super().__getstate__()
-        state['properties'] = self.properties
-        state['properties_values'] = self.properties_values
+        state['object'] = self.object
+        state['method_name'] = self.method_name
+        state.pop('target', None)  # Do not pass the target anymore. Get the target from the object_id and method_name
         return state
 
     def __setstate__(self, state):
@@ -63,149 +102,199 @@ class ProxyEvent(CacheEvent):
 
         Register all of the cached items. Get the target from the target object_id and method_name.
         """
-        self.properties = state.pop('properties', None)
-        self.properties_values = state.pop('properties_values', {})
+        super().__setstate__(state)
+
+        self.object = state.pop('object', None)
+        self.method_name = state.pop('method_name', None)
+        if self.method_name:
+            state['target'] = getattr(self.object, self.method_name, None)
+        else:
+            state['target'] = self.object
+
         super().__setstate__(state)
 
 
-class MpMethod(collections.namedtuple('MpAttribute', 'getter setter')):
-    @staticmethod
-    def get_obj_value(obj, getter):
-        return getattr(obj, getter)()
-
-    @staticmethod
-    def set_obj_value(obj, setter, value):
-        getattr(obj, setter)(value)
-
-    def get_value(self, obj):
-        return self.get_obj_value(obj, self.getter)
-
-    def set_value(self, obj, value):
-        self.set_obj_value(obj, self.setter, value)
-
-
-class MpAttribute(collections.namedtuple('MpAttribute', 'name')):
-    @staticmethod
-    def get_obj_value(obj, getter):
-        return getattr(obj, getter)
-
-    @staticmethod
-    def set_obj_value(obj, setter, value):
-        setattr(obj, setter, value)
-
-    def get_value(self, obj):
-        return self.get_obj_value(obj, self.name)
-
-    def set_value(self, obj, value):
-        self.set_obj_value(obj, self.name, value)
-
-
-def proxy_func(func=None, properties=None):
-    """Decorator to make a function be called in a separate process."""
-    if func is not None:
-        name = func.__name__
-
-        @wraps(func)
-        def wrapper(self, *args, **kwargs):
-            if hasattr(self, '__loop__') and self.__loop__:
-                event = ProxyEvent(getattr(self, name), *args, **kwargs,
-                                   properties=properties, cache=self.__loop__.cache)
-                self.__loop__.add_cache_event(event)
-            else:
-                func(self, *args, **kwargs)
-
-        return wrapper
-
-    else:
-        def new_decorator(func):
-            name = func.__name__
-
-            @wraps(func)
-            def wrapper(self, *args, **kwargs):
-                if hasattr(self, '__loop__') and self.__loop__:
-                    event = ProxyEvent(getattr(self, name), *args, **kwargs,
-                                       properties=properties, cache=self.__loop__.cache)
-                    self.__loop__.add_cache_event(event)
-                else:
-                    func(self, *args, **kwargs)
-
-            return wrapper
-
-        return new_decorator
-
-
 def proxy_output_handler(event):
-    """Handle the proxy event"""
+    """Handle the proxy event output. Nothing needs to happen here. All of the syncing is done in Proxy.__setstate__."""
     if isinstance(event, ProxyEvent):
-        for key, val in event.properties_values.items():
-            setattr(event.object, key, val)
         return True
 
 
-class MpProxy(object):
-    """Multiprocessing proxy object.
+class Proxy(object):
+    """This proxy works by defining the properties and getter methods that you want to me accessible in the main
+    process while a different process holds the real object.
 
-    Set MP_METHOODS for getter and setter methods that should be transferred to the other process.
-    Set MP_ATTRIBUTES for attributes/properties that should be transferred to the other process.
-
-    Use the proxy_setter decorator to make that function be called in the other process.
+    Note:
+        Proxy values take a long time to sync. This object is more for controlling and calling methods for an object
+        that lives in a different process.
     """
+    SLOTS = ['__cache_id__', '__loop_id__', '__proxy_id__', '__loop__',  '__cache__', '__proxy__', '__object__',
+             '__args__', '__kwargs__',
+             'PROXY_CLASS', 'PROPERTIES', 'GETTERS', 'SLOTS', 'create_mp_object']
 
-    MP_METHODS = []
-    MP_ATTRIBUTES = []
     __loop__ = None
 
-    def __init__(self, *args, loop=None, output_handler=proxy_output_handler, **kwargs):
-        # Set the event loop
+    # Required properties
+    PROXY_CLASS = object
+    PROPERTIES = []
+    GETTERS = []
+
+    def create_mp_object(self, args, kwargs):
+        """Take in known properties and getters and return a single object to exist in the separate process and be
+        referenced by the proxy.
+
+        Args:
+            args (tuple): Tuple of proxy given arguments
+            kwargs (dict): Dictionary of proxy given keyword arguments
+        """
+        return self.PROXY_CLASS(*args, **kwargs)
+
+    def sync_mp_object(self):
+        """Synchronize the multiprocessing object with the proxy. This should not need to be called."""
+        if self.__loop__:
+            # Try to make the proxy_output_handler run first
+            if proxy_output_handler not in self.__loop__.output_handlers:
+                self.__loop__.insert_output_handler(0, proxy_output_handler)
+
+            # Cache the object which should create the mp object if not created yet.
+            self.__loop__.cache_object(self, has_output=True, event_key=self.__proxy_id__)
+
+    def mp_wait(self):
+        """Wait for all multiprocessing events. This makes this objects value sync."""
+        self.__loop__.wait()
+
+    def is_mp_proxy(self):
+        """Return if this object is the proxy object that lives in the main process."""
+        return bool(self.__proxy__)
+
+    def __init__(self, *args, loop=None, **kwargs):
+        # Check and set the event loop
         if loop is None:
             loop = self.__class__.__loop__
-        self.__loop__ = loop
-        if self.__loop__ is not None:
-            self.__loop__.add_output_handler(output_handler)
+        if loop is None:
+            raise ValueError("Invalid multiprocessing event loop for the proxy!")
+        self.__loop_id__ = CacheEvent.get_object_key(loop)
+        self.__loop__ = CacheEvent.get_or_register_object(self.__loop_id__, loop)
 
-    def create_mp_objects(self):
-        """Create objects and return a dictionary of variable name, object pairs."""
-        return {}
+        # Check and set the cache
+        try:
+            cache = self.__loop__.cache
+        except AttributeError:
+            cache = CacheEvent.CACHE
+        self.__cache_id__ = CacheEvent.get_object_key(cache)
+        self.__cache__ = CacheEvent.get_or_register_object(self.__cache_id__, cache)
 
-    def set_mp_method(self, setter, value, properties=None):
-        """Call a setter method in a separate process."""
-        if hasattr(self, '__loop__') and self.__loop__:
-            event = ProxyEvent(getattr(self, setter), value, properties=properties)
-            self.__loop__.add_cache_event(event)
-        else:
-            getattr(self, setter)(value)
+        # Set the main variables
+        self.__args__ = args
+        self.__kwargs__ = kwargs
+        self.__proxy__ = {None: None}
+        self.__proxy_id__ = CacheEvent.register_object(self.__proxy__, cache=self.__cache__)
+        self.__object__ = None
 
-    def set_mp_attribute(self, attribute, value, properties=None):
-        """Set the attribute in a a separate process."""
-        if hasattr(self, '__loop__') and self.__loop__:
-            event = ProxyEvent(self.__setattr__, attribute, value, properties=properties)
-            self.__loop__.add_cache_event(event)
-        else:
-            setattr(self, attribute, value)
+        self.sync_mp_object()
+
+    def __getattr__(self, item):
+        try:
+            proxy = self.__proxy__
+            if proxy:
+                if item in self.GETTERS:
+                    def getter_func(*args, **kwargs):
+                        return self.__proxy__.get(item, None)
+                    return getter_func
+                elif item in proxy:
+                    return self.__proxy__.get(item, None)
+
+                # Check if function should be called in a different process
+                elif not item.startswith('__') and not item.endswith('__'):
+                    def getter_call_in_process(*args, **kwargs):
+                        _call_in_process(self.__loop__, self, item, *args, **kwargs)
+                    getter_call_in_process.__name__ = item
+                    return getter_call_in_process
+            else:
+                # Object exists in a different process
+                return getattr(self.__object__, item)
+        except:
+            pass
+        raise AttributeError("'object' has no attribute " + repr(item))
+
+    def __setattr__(self, key, value):
+        try:
+            if key in self.SLOTS:
+                # Value belongs to this class
+                return super().__setattr__(key, value)
+
+            elif self.__proxy__:
+                # Value belongs int the proxy
+                self.__proxy__[key] = value
+
+                # If setting a property set the property value in the separate process
+                _call_in_process(self.__loop__, self, '__setattr__', key, value)
+                return
+            else:
+                # Object exists in a different process
+                setattr(self.__object__, key, value)
+                return
+        except:
+            pass
+
+        return super().__setattr__(key, value)
 
     def __getstate__(self):
-        """Return the state for pickling to a separate process."""
-        state = {
-            'mp_attributes': {mp_item.name: mp_item.get_value(self) for mp_item in self.MP_ATTRIBUTES},
-            'mp_methods': {mp_item.setter: mp_item.get_value(self) for mp_item in self.MP_METHODS},
-            }
+        # Is going to the separate process. If False is going to the main process which is the proxy
+        is_target_other_process = self.is_mp_proxy()
+
+        # State values to return
+        state = {'cache_id': self.__cache_id__,
+                 'loop_id': self.__loop_id__,
+                 'proxy_id': self.__proxy_id__,
+                 'is_other_process': is_target_other_process,
+                 'args': self.__args__,
+                 'kwargs': self.__kwargs__,
+                 }
+
+        if is_target_other_process:
+            # May need to set the initial PROPERTIES and GETTERS value
+            state['PROPERTIES'] = self.PROPERTIES
+            state['GETTERS'] = self.GETTERS
+        else:
+            # May be the best way to sync values? or use event?
+            state['PROPERTIES'] = [(name, getattr(self.__object__, name, None)) for name in self.PROPERTIES]
+            state['GETTERS'] = [(name, _get_getter_value(getattr(self.__object__, name, None))) for name in self.GETTERS]
+
         return state
 
     def __setstate__(self, state):
-        """Set the object variables after pickling in the separate process."""
-        self.cache = CacheEvent.CACHE
-        self.__loop__ = None
+        # Get the loop and cache
+        self.__cache_id__ = state['cache_id']
+        self.__loop_id__ = state['loop_id']
+        self.__proxy_id__ = state['proxy_id']
+        self.__args__ = None
+        self.__kwargs__ = None
+        self.__proxy__ = None
+        self.__object__ = None
 
-        # Create objects and save variables to the cache
-        variables = self.create_mp_objects()
-        if variables:
-            for key, value in variables.items():
-                self.cache[key] = value
+        # Get the cache and loop
+        self.__cache__ = CacheEvent.get_or_register_object(self.__cache_id__, CacheEvent.CACHE)
+        self.__loop__ = CacheEvent.get_or_register_object(self.__loop_id__, None)
 
-        # Set the value for the attributes
-        for key, val in state.pop('mp_attributes', {}).items():
-            MpAttribute.set_obj_value(self, key, val)
+        # Get if this item is a proxy or real object in a different process
+        proxy = self.__cache__.get(self.__proxy_id__, None)
+        if state['is_other_process']:
+            if not proxy:
+                # ===== Create the new object (One Time!) =====
+                # Set the properties and getters once
+                self.PROPERTIES = state.get('PROPERTIES', [])
+                self.GETTERS = state.get("GETTERS", [])
 
-        # set the value for the methods
-        for key, val in state.pop('mp_methods', {}).items():
-            MpMethod.set_obj_value(self, key, val)
+                # Create the new object in this different process
+                proxy = self.create_mp_object(state['args'], state['kwargs'])
+                CacheEvent.register_object(proxy, cache=self.__cache__)
+                self.__cache__[self.__proxy_id__] = proxy
+
+            self.__object__ = proxy
+        else:
+            self.__proxy__ = proxy
+
+            # Re-sync proxy attributes when this object is return to the main process
+            for item in state.get('PROPERTIES', []) + state.get("GETTERS", []):
+                self.__proxy__[item[0]] = item[1]

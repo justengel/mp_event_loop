@@ -55,16 +55,16 @@ class Event(object):
                 'has_output': self.has_output, 'event_key': self.event_key}
 
     def __setstate__(self, state):
-        """Set the object variables after pickling."""
-        self.target = state.pop('target', None)
-        self.args = state.pop('args', ())
-        self.kwargs = state.pop('kwargs', {})
+        """Set the object's variables after pickling."""
+        # Initialize variables
+        self.target = state.get('target', None)
+        self.args = state.get('args', tuple())
+        self.kwargs = state.get('kwargs', {})
 
-        self.results = state.pop('results', None)
-        self.error = state.pop('error', None)
-
-        self.has_output = state.pop('has_output', False)
-        self.event_key = state.pop('event_key', None)
+        self.results = state.get('results', None)
+        self.error = state.get('error', None)
+        self.has_output = state.get('has_output', False)
+        self.event_key = state.get('event_key', None)
 
 
 # ========== Cache Event ==========
@@ -72,25 +72,25 @@ class CacheEvent(Event):
     """Event that saves an object or command in the separate process to prevent passing the object back and forth
     between processes.
     """
+
     CACHE = {}
+    DO_NOT_REGISTER_TYPE = (str, bytes, int, float, complex)
 
     @staticmethod
     def get_object_key(obj):
         """Return the object key used for accessing the object in the separate process."""
-        if isinstance(obj, str) and ":::" in obj:
+        if isinstance(obj, CacheEvent.DO_NOT_REGISTER_TYPE) or obj is None:
             return obj
-        return ":::".join((str(obj), str(id(obj))))
+        return str(id(obj))
+        # return ":::".join((str(obj), str(id(obj))))
 
     @staticmethod
-    def get_registered_cache(cache_id, default=None):
-        """Return the registered cache."""
-        if default is None:
-            default = CacheEvent.CACHE
-
+    def get_or_register_object(obj_id, obj):
+        """Find and return the registered object or register the given object."""
         # Get the cache from the cache id
-        if cache_id not in CacheEvent.CACHE:
-            CacheEvent.CACHE[cache_id] = default
-        return CacheEvent.CACHE.get(cache_id, default)
+        if not isinstance(obj, CacheEvent.DO_NOT_REGISTER_TYPE) and obj is not None and obj_id not in CacheEvent.CACHE:
+            CacheEvent.CACHE[obj_id] = obj
+        return CacheEvent.CACHE.get(obj_id, obj)
 
     @classmethod
     def is_object_registered(cls, obj, name=None, cache=None):
@@ -101,39 +101,15 @@ class CacheEvent(Event):
             cache = CacheEvent.CACHE
         return obj is not None and cache.get(name, None) == obj
 
-    def register_process_object(self, obj, name=None):
-        """Register a global object which can be accessed.
-
-        Warning:
-            This should not be called manually! This is used by the CacheEvent. Manually calling this function may
-            cause problems with registering objects in the separate process.
-        """
+    @classmethod
+    def register_object(cls, obj, name=None, cache=None):
+        """Register the given object to the cache."""
         if name is None:
-            name = self.get_object_key(obj)
-        self.cache[name] = obj
+            name = cls.get_object_key(obj)
+        if cache is None:
+            cache = CacheEvent.CACHE
+        cache[name] = obj
         return name
-
-    def _cache_object(self, obj, re_register=False):
-        """Check if the object is cached and register it to be cached.
-
-        Args:
-            obj (object): Object to be cached.
-            re_register (bool)[False]: Forcibly register this object in the other process.
-        """
-        # Check if the object needs to be created in the other process
-        object_id = self.get_object_key(obj)
-        if re_register or not self.is_object_registered(obj, object_id, cache=self.cache):
-            self.register_process_object(obj, object_id)
-            self.register.append([object_id, obj])  # Name, object
-
-        return object_id
-
-    def _key_cached_object(self, obj):
-        """If the object is cached return the key for that object."""
-        object_id = self.get_object_key(obj)
-        if self.is_object_registered(obj, object_id, cache=self.cache):
-            return object_id
-        return obj
 
     def __init__(self, target, *args, has_output=True, event_key=None, cache=None, re_register=False, **kwargs):
         """Create the event.
@@ -167,98 +143,53 @@ class CacheEvent(Event):
         # Setup for multiple caches
         if cache is None:
             cache = CacheEvent.CACHE
-        self.cache_id = str(id(cache))
-        self.cache = self.get_registered_cache(self.cache_id, cache)
+        self.cache_id = CacheEvent.get_object_key(cache)
+        self.cache = CacheEvent.get_or_register_object(self.cache_id, cache)
 
         # Set the Variables
         self.register = []
-        self.object_id = self._cache_object(obj, re_register=re_register)
+        self.object_id = self._cache_object_with_register(obj, re_register=re_register, cache=self.cache)
         self.method_name = cmd
         self.object = obj
 
         # Get the key for cached objects
-        args = tuple(self._key_cached_object(arg) for arg in args)
-        kwargs = {key: self._key_cached_object(val) for key, val in kwargs.items()}
+        args = tuple(self._key_cached_object(arg, cache=self.cache) for arg in args)
+        kwargs = {key: self._key_cached_object(val, cache=self.cache) for key, val in kwargs.items()}
 
         # Initialize
         super().__init__(target, *args, **kwargs, has_output=has_output, event_key=event_key)
 
-    def __getstate__(self):
-        """Return the state for pickling.
-
-        Do not pass the target. Pass the items to be registered, the target object_id and method_name.
-        """
-        state = super().__getstate__()
-        state['cache_id'] = self.cache_id
-        state['register'] = self.register
-        state['object_id'] = self.object_id
-        state['method_name'] = self.method_name
-        state.pop('target', None)  # Do not pass the target anymore. Get the target from the object_id and method_name
-        return state
-
-    def __setstate__(self, state):
-        """Set the object variables after pickling.
-
-        Register all of the cached items. Get the target from the target object_id and method_name.
-        """
-        # Get the cache from the cache id
-        self.cache_id = state.get('cache_id', str(id(CacheEvent.CACHE)))
-        self.cache = self.get_registered_cache(self.cache_id)
-
-        # Register the cached items
-        self.register = []
-        register = state.pop('register', None)
-        if register:
-            for name, obj in register:
-                self.register_process_object(obj, name=name)
-
-        # Get the target object_id and get the object from the object_id
-        if not hasattr(self, 'object'):
-            self.object = None
-        if not hasattr(self, 'object_id'):
-            self.object_id = None
-        self.object_id = state.pop('object_id', self.object_id)
-        self.object = self.cache.get(self.object_id, self.object)
-
-        # Get the target from the method name
-        if not hasattr(self, 'method_name'):
-            self.method_name = None
-        self.method_name = state.get('method_name', self.method_name)
-        if self.method_name:
-            state['target'] = getattr(self.object, self.method_name, None)
-        else:
-            state['target'] = self.object
-
-        # Map cached args and kwargs
-        try:
-            state['args'] = tuple(self.cache.get(arg, arg) for arg in state['args'])
-        except KeyError:
-            pass
-        try:
-            state['kwargs'] = {key: self.cache.get(val, val) for key, val in state['kwargs'].items()}
-        except KeyError:
-            pass
-
-        super().__setstate__(state)
-
-
-class CacheObjectEvent(CacheEvent):
-    """Event that registers and saves an object in the separate process. This event can also send the object back to
-    the main process.
-    """
-
-    def __init__(self, obj, has_output=False, event_key=None, cache=None, re_register=False):
-        """Create the event.
+    def _cache_object_with_register(self, obj, re_register=False, cache=None):
+        """Check if the object is cached and register it to be cached.
 
         Args:
-            obj (object): Object to cache.
-            has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
-            event_key (str)[None]: Key to identify the event or output result.
+            obj (object): Object to be cached.
             re_register (bool)[False]: Forcibly register this object in the other process.
-            cache (dict)[None]: Custom cache dictionary.
+            cache (dict)[None]: Cache to check and register the object with.
         """
-        super().__init__(None, has_output=has_output, event_key=event_key, cache=cache, re_register=re_register)
-        self.object_id = self._cache_object(obj, re_register=re_register)
+        if cache is None:
+            cache = CacheEvent.CACHE
+
+        # Check if the object needs to be created in the other process
+        object_id = CacheEvent.get_object_key(obj)
+        if not isinstance(obj, CacheEvent.DO_NOT_REGISTER_TYPE) and obj is not None and \
+                (re_register or not CacheEvent.is_object_registered(obj, object_id, cache=cache)):
+            CacheEvent.register_object(obj, object_id, cache=cache)
+            self.register.append([object_id, obj])  # Name, object
+
+        return object_id
+
+    @staticmethod
+    def _key_cached_object(obj, cache=None):
+        """If the object is cached return the key for that object."""
+        if cache is None:
+            cache = CacheEvent.CACHE
+
+        object_id = CacheEvent.get_object_key(obj)
+        if not isinstance(obj, CacheEvent.DO_NOT_REGISTER_TYPE) and obj is not None and \
+                CacheEvent.is_object_registered(obj, object_id, cache=cache):
+            return object_id
+        return obj
 
     def exec_(self):
         """Get the command and run it"""
@@ -276,10 +207,59 @@ class CacheObjectEvent(CacheEvent):
         else:
             self.error = ValueError("Invalid target (%s) given! Type %s" % (repr(self.target), str(type(self.target))))
 
+    def __getstate__(self):
+        """Return the state for pickling.
+
+        Do not pass the target. Pass the items to be registered, the target object_id and method_name.
+        """
+        # Normal Event variables
+        state = super().__getstate__()
+        state.pop('target', None)
+        state.update({'cache_id': self.cache_id, 'register': self.register,
+                      'object_id': self.object_id, 'method_name': self.method_name})
+        return state
+
     def __setstate__(self, state):
-        """Set the object variables after pickling."""
+        """Set the object variables after pickling.
+
+        Register all of the cached items. Get the target from the target object_id and method_name.
+        """
         super().__setstate__(state)
 
-        # This Event does not run a function, clear it if it was only caching an object
-        if self.target == self.object:
-            self.target = None
+        # Initialize variables
+        self.object = None
+        self.object_id = None
+        self.method_name = None
+
+        # Get the cache from the cache id
+        self.cache_id = state.get('cache_id', None)
+        self.cache = CacheEvent.get_or_register_object(self.cache_id, CacheEvent.CACHE)
+
+        # Register the items with the cache
+        self.register = []
+        register = state.get('register', [])
+        if register:
+            for name, obj in register:
+                CacheEvent.register_object(obj, name=name, cache=self.cache)
+
+        # Get the object_id and get the object from the object_id
+        self.object_id = state.get('object_id', self.object_id)
+        self.object = self.cache.get(self.object_id, self.object)
+
+        # Get the target from the method name
+        self.method_name = state.get('method_name', self.method_name)
+        if self.method_name:
+            self.target = getattr(self.object, self.method_name, None)
+        else:
+            self.target = self.object
+
+        # Map cached args and kwargs
+        self.args = tuple(self.cache.get(arg, arg) for arg in state.get('args', []))
+        self.kwargs = {key: self.cache.get(val, val) for key, val in state.get('kwargs', {}).items()}
+
+
+class CacheObjectEvent(CacheEvent):
+    def __setstate__(self, state):
+        super().__setstate__(state)
+        # No not run a function. Only cache the object
+        self.target = None

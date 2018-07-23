@@ -182,7 +182,7 @@ class EventLoop(object):
             event_key (str)[None]: Key to identify the event or output result.
             re_register (bool)[False]: Forcibly register this object in the other process.
         """
-        if isinstance(obj, CacheObjectEvent):
+        if isinstance(obj, CacheEvent):
             event = obj
         elif isinstance(obj, Event):
             old_event = obj
@@ -322,9 +322,15 @@ class EventLoop(object):
             pass
 
     def __getstate__(self):
-        return {'output_handlers': self.output_handlers, 'process_output': self.process_output}
+        return {'name': self.name, 'has_results': self.has_results,
+                'output_handlers': self.output_handlers, 'process_output': self.process_output,
+                }
 
     def __setstate__(self, state):
+        self._needs_to_close = False
+        self.name = state.get('name', '')
+        self.has_results = state.get('has_results', None)
+
         self.output_handlers = state.get('output_handlers', [])
         self.process_output = state.get('process_output', None)
         if self.process_output is None:
@@ -336,7 +342,8 @@ class EventLoop(object):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.run_until_complete()
+        self.wait()
+        self.stop()
 
         if exc_type is not None:
             return False
