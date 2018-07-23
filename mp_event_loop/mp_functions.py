@@ -15,7 +15,7 @@ except ImportError as err:
 
 
 __all__ = ['print_exception', 'is_parent_process_alive', 'mark_task_done', 'LoopQueueSize',
-           'stop_event_loop', 'run_event_loop', 'run_consumer_loop',
+           'stop_event_loop', 'process_event', 'run_event_loop', 'run_consumer_loop',
            'QUEUE_TIMEOUT']
 
 
@@ -100,6 +100,21 @@ def stop_event_loop(alive_event, event_process=None, consumer_process=None):
         pass
 
 
+def process_event(event, consumer_queue=None):
+    """Process the given event.
+
+    Args:
+        event (Event): Event to execute
+        even
+        consumer_queue (Queue)[None]: Queue to put the results on.
+    """
+    if isinstance(event, Event):
+        # Run the event
+        event.exec_()
+        if consumer_queue and event.has_output:
+            consumer_queue.put(event)
+
+
 def run_event_loop(alive_event, event_queue, consumer_queue=None):
     """Run the event loop.
 
@@ -112,12 +127,7 @@ def run_event_loop(alive_event, event_queue, consumer_queue=None):
     for _ in LoopQueueSize(alive_event, event_queue):  # Iterate until a stop case then iterate the queue.qsize
         try:
             event = event_queue.get(timeout=QUEUE_TIMEOUT)
-            if isinstance(event, Event):
-                # Run the event
-                event.exec_()
-                if consumer_queue and event.has_output:
-                    consumer_queue.put(event)
-
+            process_event(event, consumer_queue=consumer_queue)
             mark_task_done(event_queue)
         except Empty:
             pass
