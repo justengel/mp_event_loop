@@ -170,7 +170,7 @@ class Proxy(object):
     def __init__(self, *args, loop=None, **kwargs):
         # Check and set the event loop
         if loop is None:
-            loop = self.__class__.__loop__
+            loop = self.__loop__
         if loop is None:
             raise ValueError("Invalid multiprocessing event loop for the proxy!")
         self.__loop_id__ = CacheEvent.get_object_key(loop)
