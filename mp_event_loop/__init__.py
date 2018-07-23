@@ -1,5 +1,5 @@
 from .mp_functions import print_exception, is_parent_process_alive, mark_task_done, LoopQueueSize, \
-    stop_event_loop, run_event_loop, run_consumer_loop
+    stop_event_loop, process_event, run_event_loop, run_consumer_loop, QUEUE_TIMEOUT
 from .events import Event, CacheEvent, CacheObjectEvent
 from .mp_proxy import ProxyEvent, proxy_output_handler, Proxy
 from .event_loop import EventLoop
