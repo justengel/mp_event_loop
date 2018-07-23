@@ -112,9 +112,9 @@ def test_proxy_getter_property_conflict():
 
 
 if __name__ == '__main__':
-    # test_proxy()
-    # test_proxy_class_loop()
-    # test_proxy_alt_args()
-    # test_proxy_wait()
+    test_proxy()
+    test_proxy_class_loop()
+    test_proxy_alt_args()
+    test_proxy_wait()
     test_proxy_getter_property_conflict()
     print("All tests ran successfully!")
