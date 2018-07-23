@@ -35,15 +35,6 @@ def _get_getter_value(func):
         return None
 
 
-def _call_in_process(loop, obj, method_name=None, *args, **kwargs):
-    """Call the target function in a separate process."""
-    if loop is not None:
-        pe = ProxyEvent(obj, method_name, *args, **kwargs)
-        loop.add_event(pe)
-        return True
-    return False
-
-
 class ProxyEvent(Event):
     """The ProxyEvent needs nothing done to it. All of the syncing and caching is done in the Proxy.__setstate__."""
     def __init__(self, obj, method_name=None, *args, has_output=True, event_key=None, **kwargs):
@@ -159,6 +150,15 @@ class Proxy(object):
             # Cache the object which should create the mp object if not created yet.
             self.__loop__.cache_object(self, has_output=True, event_key=self.__proxy_id__)
 
+    @staticmethod
+    def _call_in_process(loop, obj, method_name=None, *args, **kwargs):
+        """Call the target function in a separate process."""
+        if loop is not None:
+            pe = ProxyEvent(obj, method_name, *args, **kwargs)
+            loop.add_event(pe)
+            return True
+        return False
+
     def mp_wait(self):
         """Wait for all multiprocessing events. This makes this objects value sync."""
         self.__loop__.wait()
@@ -207,7 +207,7 @@ class Proxy(object):
                 # Check if function should be called in a different process
                 elif not item.startswith('__') and not item.endswith('__'):
                     def getter_call_in_process(*args, **kwargs):
-                        _call_in_process(self.__loop__, self, item, *args, **kwargs)
+                        self._call_in_process(self.__loop__, self, item, *args, **kwargs)
                     getter_call_in_process.__name__ = item
                     return getter_call_in_process
             else:
@@ -228,7 +228,7 @@ class Proxy(object):
                 self.__proxy__[key] = value
 
                 # If setting a property set the property value in the separate process
-                _call_in_process(self.__loop__, self, '__setattr__', key, value)
+                self._call_in_process(self.__loop__, self, '__setattr__', key, value)
                 return
             else:
                 # Object exists in a different process

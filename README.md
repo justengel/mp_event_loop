@@ -29,7 +29,7 @@ The EventLoop also comes with some utilities to add commands to be processed and
 These functions will be explained more below
 
 
-## Quickstart
+## Quick Start
 
     pip install mp_event_loop
     
