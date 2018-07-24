@@ -1,16 +1,20 @@
 import mp_event_loop
-from mp_event_loop.async_event_loop import AsyncEventLoop
-import multiprocessing_on_dill as mp
-
-mp_event_loop.use(mp)
-AsyncEventLoop.alive_event_class = mp.Event
-AsyncEventLoop.queue_class = mp.JoinableQueue
-AsyncEventLoop.event_loop_class = mp.Process
+from mp_event_loop.async_event_loop import AsyncEventLoop, AsyncManager
 
 
 async def print_test(value, name):
-    print(name)
+    print("Print", name)
     return value
+
+
+async def yield_range(value, name):
+    print("Yield", name)
+    for i in range(value):
+        yield name + " " + str(i)
+
+
+AsyncManager.register('print_test', print_test)
+AsyncManager.register('yield_range', yield_range)
 
 
 def test_async_event_loop():
@@ -21,11 +25,17 @@ def test_async_event_loop():
         results.append(event.results)
 
     with AsyncEventLoop(output_handlers=save_results) as loop:
-        loop.add_event(print_test, 1, "hello")
-        # loop.add_event(print_test(1, "hello"))
-        # loop.add_event(print_test(2, 'hi'))
-        # loop.add_event(print_test(3, 'oi'))
-        # loop.add_event(print_test(4, 'hey'))
+        loop.async_event(print_test, 1, "hello")
+        loop.async_event(print_test, 2, "hi")
+        loop.async_event(print_test, 3, "oi")
+        loop.async_event(yield_range, 5, 'first')
+        loop.async_event(yield_range, 5, 'second')
+
+    assert results[:3] == [1, 2, 3], results
+
+    excpected = ['first ' + str(i) for i in range(5)] + ['second ' + str(i) for i in range(5)]
+    for exp in excpected:
+        assert exp in results, '%s not in the results list' % exp
 
     print(results)
 

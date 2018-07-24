@@ -4,11 +4,7 @@ Library for long running multiprocessing event loops. This library provides an E
 separate process. The purpose of this library is to manage a long running process while a GUI is running in the main 
 thread. Tasks can be offloaded to another processes continuously while the GUI is running. 
 
-
-    Warning:
-    This library does not work with async/await.
-    Coroutines and generators cannot be pickled which prevents them from being run in a separate process.
-
+**Now works with async/await!** see the example below.
 
 The EventLoop comes with several utilities for managing the separate process.
 
@@ -85,6 +81,49 @@ mp_event_loop.wait()
 
 print("Results summed:", sum(results))
 # Results summed: 14
+```
+## Async / Await
+
+You must register your coroutines with the AsyncManager in order to run in a separate process. Coroutines are not 
+picklable, so they must be registered at the module level. During unpickling (_\_setstate_\_) the coroutine will be 
+retrieved by the registered name using the AsyncManager.
+
+
+```python
+from mp_event_loop import AsyncEventLoop, AsyncManager
+
+
+async def print_test(value, name):
+    print("Print", name)
+    return value
+
+
+async def yield_range(value, name):
+    print("Yield", name)
+    for i in range(value):
+        yield name + " " + str(i)
+
+
+AsyncManager.register('print_test', print_test)
+AsyncManager.register('yield_range', yield_range)
+
+
+if __name__ == '__main__':
+    results = []
+
+    def save_results(event):
+        results.append(event.results)
+
+    with AsyncEventLoop(output_handlers=save_results) as loop:
+        loop.async_event(print_test, 1, "hello")
+        loop.async_event(print_test, 2, "hi")
+        loop.async_event('print_test', 3, "oi")  # Can also use the registered name
+        loop.async_event(yield_range, 5, 'first')
+        loop.async_event(yield_range, 5, 'second')
+
+    print(results)
+    # [1, 2, 3, 'first 0', 'first 1', 'second 0', 'first 2', 'second 1', 'first 3', 'second 2', 'first 4', 'second 3', 'second 4']
+
 ```
 
 ## How it works

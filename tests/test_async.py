@@ -100,6 +100,7 @@ except StopAsyncIteration:
 
 
 # ========== Test await in async ==========
+print("========== Test 3 ==========")
 async def print_test3(num=3):
     # What do I even put here? This is basically a JoinableQueue join right?
     # __await__() needs an iterator can I use an async generator here?

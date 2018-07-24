@@ -1,12 +1,116 @@
 import copy
+import inspect
 import types
+
+from queue import Empty
 
 from .events import Event, CacheEvent
 from .event_loop import EventLoop
-from .mp_functions import mark_task_done, LoopQueueSize, QUEUE_TIMEOUT
-
+from .mp_functions import mark_task_done, LoopQueueSize, QUEUE_TIMEOUT, is_parent_process_alive
 
 __all__ = ['run_async_event_loop', 'AsyncEventLoop']
+
+
+class AsyncManager(object):
+    COROUTINES = {}
+
+    @staticmethod
+    def register(name, obj):
+        AsyncManager.COROUTINES[name] = obj
+
+    @staticmethod
+    def get(name):
+        return AsyncManager.COROUTINES[name]
+
+    @staticmethod
+    def get_name(obj):
+        if isinstance(obj, str):
+            return obj
+        for key, value in AsyncManager.COROUTINES.items():
+            if value == obj:
+                return key
+        raise ValueError('Coroutine not registered! A Coroutine must be registered in the module level scope! '
+                         'Coroutines are not picklable and cannot be sent to another process.')
+
+
+async def get_value_from_async(store, coro):
+    """Wait for a result from the coroutine and store it in the given results list.
+
+    Args:
+        store (list): Object to store the results in
+        coro (coroutine): Coroutine to wait on.
+    """
+    res = await coro
+    store.append(res)
+
+
+def get_async_results(coro):
+    if inspect.isawaitable(coro):
+        store = []
+        try:
+            get_value_from_async(store, coro).send(None)
+        except StopIteration:
+            pass
+        if len(store):
+            return store[0]
+        return None
+    return coro
+
+
+class AsyncEvent(Event):
+    def __init__(self, coroutine_name, *args, has_output=True, event_key=None, **kwargs):
+        """Create the event.
+
+        Args:
+            coroutine_name (str/coroutine): Coroutine name or registered coroutine to lookup the name for
+            *args (tuple): Arguments to pass into the target function.
+            has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
+            event_key (str)[None]: Key to identify the event or output result.
+            **kwargs (dict): Keyword arguments to pass into the target function.
+            args (tuple)[None]: Keyword args argument.
+            kwargs (dict)[None]: Keyword kwargs argument.
+        """
+        self.coroutine_name = AsyncManager.get_name(coroutine_name)
+        target = AsyncManager.get(self.coroutine_name)
+        super().__init__(target, *args, has_output=has_output, event_key=event_key, **kwargs)
+
+    def run(self):
+        results = self.target(*self.args, **self.kwargs)
+        return get_async_results(results)
+
+    def __getstate__(self):
+        state = super().__getstate__()
+        state['coroutine_name'] = self.coroutine_name
+        state.pop('target', None)
+        return state
+
+    def __setstate__(self, state):
+        super().__setstate__(state)
+
+        self.coroutine_name = state.get('coroutine_name', '')
+        self.target = AsyncManager.get(self.coroutine_name)
+
+
+class LoopAsyncQueueSize(LoopQueueSize):
+    """Iterator to iterate until the alive_event is cleared or the parent process dies then iterate the number of
+    queue.qsize().
+    """
+    def __init__(self, alive_event, queue, async_generator_events):
+        self.async_generator_events = async_generator_events
+        super().__init__(alive_event, queue)
+
+    def __next__(self):
+        if self.countdown > 0:
+            self.countdown -= 1
+        elif len(self.async_generator_events):
+            return "Continue Async"
+        else:
+            should_iter = self.alive_event.is_set() and is_parent_process_alive()
+            if not should_iter:
+                self.countdown = self.queue.qsize()
+        if self.countdown == 0:
+            raise StopIteration
+        return "Continue"
 
 
 def run_async_event_loop(alive_event, event_queue, consumer_queue=None):
@@ -20,29 +124,35 @@ def run_async_event_loop(alive_event, event_queue, consumer_queue=None):
     """
     async_generator_events = []
     # ===== Run the logging event loop =====
-    for _ in LoopQueueSize(alive_event, event_queue):
-        if len(async_generator_events) == 0 or not event_queue.empty():
+    for _ in LoopAsyncQueueSize(alive_event, event_queue, async_generator_events):
+        event = None
+        if not event_queue.empty():
+            event = event_queue.get_nowait()
+
+        elif len(async_generator_events) == 0:
             # Get an event an run it
-            event = event_queue.get(timeout=QUEUE_TIMEOUT)
+            try:
+                event = event_queue.get(timeout=QUEUE_TIMEOUT)
+            except Empty:
+                pass
 
-            if isinstance(event, Event):
-                # Run the event
-                event.exec_()
-                if event.results and isinstance(event.results, types.CoroutineType):
-                    try:
-                        event.results = event.results.send(None)  # The coroutine is finally called
-                    except StopIteration:
-                        pass
+        if isinstance(event, Event):
+            # Run the event
+            event.exec_()
+            if event.results and isinstance(event.results, types.CoroutineType):
+                try:
+                    event.results = event.results.send(None)  # The coroutine is finally called
+                except StopIteration:
+                    event.results = None
 
-                if consumer_queue:
-                    if event.results and isinstance(event.results, types.AsyncGeneratorType):
-                        event.async_generator = event.results
-                        async_generator_events.append(event)
+            if consumer_queue:
+                if event.results and isinstance(event.results, types.AsyncGeneratorType):
+                    event.async_generator = event.results
+                    async_generator_events.append(event)
 
-                    elif event.has_output:
-                        consumer_queue.put(event)
-
-            mark_task_done(event_queue)
+                elif event.has_output:
+                    consumer_queue.put(event)
+                    mark_task_done(event_queue)
 
         # Loop through the existing async_generators
         offset = 0
@@ -51,7 +161,7 @@ def run_async_event_loop(alive_event, event_queue, consumer_queue=None):
             new_event = copy.copy(event)
             try:
                 coro = event.async_generator.asend(None)
-                new_event.results = coro.send(None)
+                new_event.results = get_async_results(coro)  # .send(None)
             except StopIteration:
                 # Every coro.send call will cause a StopIteration
                 continue
@@ -59,6 +169,7 @@ def run_async_event_loop(alive_event, event_queue, consumer_queue=None):
                 # The async generator is complete
                 async_generator_events.pop(i)
                 offset -= 1
+                mark_task_done(event_queue)
                 continue
             except Exception as err:
                 new_event.error = err
@@ -70,42 +181,18 @@ def run_async_event_loop(alive_event, event_queue, consumer_queue=None):
     alive_event.clear()
 
 
-class AsyncEventMixin(object):
-    def run(self):
-        """Run the actual command that was given and return the results"""
-        if isinstance(self.target, types.CoroutineType):
-            try:
-                return self.target.send(None)
-            except StopIteration:
-                pass
-        elif isinstance(self.target, types.AsyncGeneratorType):
-            return self.target
-        else:
-            return self.target(*self.args, **self.kwargs)
-
-
-class AsyncEvent(AsyncEventMixin, Event):
-    pass
-
-
-class AsyncCacheEvent(AsyncEventMixin, CacheEvent):
-    pass
-
-
 class AsyncEventLoop(EventLoop):
     """EventLoop to work with async/await coroutines."""
     run_event_loop = staticmethod(run_async_event_loop)
 
-    def add_event(self, target, *args, has_output=None, event_key=None, cache=False, re_register=False, **kwargs):
+    def async_event(self, coroutine_name, *args, has_output=None, event_key=None, **kwargs):
         """Add an event to be run in a separate process.
 
         Args:
-            target (function/method/callable/Event): Event or callable to run in a separate process.
+            coroutine_name (str/coroutine): Coroutine name or registered coroutine to lookup the name for
             *args (tuple): Arguments to pass into the target function.
-            has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
+            has_output (bool) [None]: If True save the results and put this event on the consumer/output queue.
             event_key (str)[None]: Key to identify the event or output result.
-            cache (bool) [False]: If the target object should be cached.
-            re_register (bool)[False]: Forcibly register this object in the other process.
             **kwargs (dict): Keyword arguments to pass into the target function.
             args (tuple)[None]: Keyword args argument.
             kwargs (dict)[None]: Keyword kwargs argument.
@@ -113,56 +200,11 @@ class AsyncEventLoop(EventLoop):
         args = kwargs.pop('args', args)
         kwargs = kwargs.pop('kwargs', kwargs)
 
-        if cache:
-            return self.add_cache_event(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                                        re_register=re_register)
-
-        elif isinstance(target, Event):
-            event = target
-
+        if isinstance(coroutine_name, Event):
+            event = coroutine_name
         else:
             if has_output is None:
                 has_output = True
-            event = AsyncEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key)
-
-        self.event_queue.put(event)
-
-    def add_cache_event(self, target, *args, has_output=None, event_key=None, re_register=False, **kwargs):
-        """Add an event that uses cached objects.
-
-        Args:
-            target (function/method/callable/Event): Event or callable to run in a separate process.
-            *args (tuple): Arguments to pass into the target function.
-            has_output (bool) [False]: If True save the results and put this event on the consumer/output queue.
-            event_key (str)[None]: Key to identify the event or output result.
-            re_register (bool)[False]: Forcibly register this object in the other process.
-            **kwargs (dict): Keyword arguments to pass into the target function.
-            args (tuple)[None]: Keyword args argument.
-            kwargs (dict)[None]: Keyword kwargs argument.
-        """
-        args = kwargs.pop('args', args)
-        kwargs = kwargs.pop('kwargs', kwargs)
-
-        # Make sure cache is not a kwargs
-        kwargs.pop('cache', None)
-
-        if isinstance(target, CacheEvent):
-            event = target
-        elif isinstance(target, Event):
-            args = args or target.args
-            kwargs = kwargs or target.kwargs
-            has_output = has_output or target.has_output
-            event_key = event_key or target.event_key
-            target = target.target
-
-            if has_output is None:
-                has_output = True
-            event = AsyncCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                                    cache=self.cache, re_register=re_register)
-        else:
-            if has_output is None:
-                has_output = True
-            event = AsyncCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                                    cache=self.cache, re_register=re_register)
+            event = AsyncEvent(coroutine_name, *args, has_output=has_output, event_key=event_key, **kwargs)
 
         self.event_queue.put(event)

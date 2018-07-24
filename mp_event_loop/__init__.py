@@ -3,6 +3,7 @@ from .mp_functions import print_exception, is_parent_process_alive, mark_task_do
 from .events import Event, CacheEvent, CacheObjectEvent
 from .mp_proxy import ProxyEvent, proxy_output_handler, Proxy
 from .event_loop import EventLoop
+from .async_event_loop import AsyncManager, AsyncEvent, AsyncEventLoop
 from .pool import Pool
 
 from multiprocessing import freeze_support
