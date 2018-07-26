@@ -1,11 +1,34 @@
 import copy
+from queue import Empty
 
 from mp_event_loop.events import Event, CacheEvent
 from mp_event_loop.event_loop import EventLoop
-from mp_event_loop.mp_functions import mark_task_done, LoopQueueSize, QUEUE_TIMEOUT
+from mp_event_loop.mp_functions import mark_task_done, LoopQueueSize, QUEUE_TIMEOUT, is_parent_process_alive
 
 
 __all__ = ['run_iter_event_loop', 'IterEventLoop']
+
+
+class LoopIterQueueSize(LoopQueueSize):
+    """Iterator to iterate until the alive_event is cleared or the parent process dies then iterate the number of
+    queue.qsize().
+    """
+    def __init__(self, alive_event, queue, iter_events):
+        self.iter_events = iter_events
+        super().__init__(alive_event, queue)
+
+    def __next__(self):
+        if self.countdown > 0:
+            self.countdown -= 1
+        elif len(self.iter_events):
+            return "Continue Async"
+        else:
+            should_iter = self.alive_event.is_set() and is_parent_process_alive()
+            if not should_iter:
+                self.countdown = self.queue.qsize()
+        if self.countdown == 0:
+            raise StopIteration
+        return "Continue"
 
 
 def run_iter_event_loop(alive_event, event_queue, consumer_queue=None):
@@ -19,22 +42,28 @@ def run_iter_event_loop(alive_event, event_queue, consumer_queue=None):
     """
     iter_events = []
     # ===== Run the logging event loop =====
-    for _ in LoopQueueSize(alive_event, event_queue):  # Iterate until a stop case then iterate the queue.qsize
-        if len(iter_events) == 0 or not event_queue.empty():
-            event = event_queue.get(timeout=QUEUE_TIMEOUT)
+    for _ in LoopIterQueueSize(alive_event, event_queue, iter_events):  # Iterate until not alive and queue is empty
+        event = None
+        if not event_queue.empty():
+            event = event_queue.get_nowait()
 
-            if isinstance(event, Event):
-                # Run the event
-                event.exec_()
-                if consumer_queue:
-                    if is_iterable(event.results):
-                        event.iter = event.results
-                        iter_events.append(event)
+        elif len(iter_events) == 0:
+            try:
+                event = event_queue.get(timeout=QUEUE_TIMEOUT)
+            except Empty:
+                pass
 
-                    elif event.has_output:
-                        consumer_queue.put(event)
+        if isinstance(event, Event):
+            # Run the event
+            event.exec_()
+            if consumer_queue:
+                if is_iterable(event.results):
+                    event.iter = event.results
+                    iter_events.append(event)
 
-            mark_task_done(event_queue)
+                elif event.has_output:
+                    consumer_queue.put(event)
+                    mark_task_done(event_queue)
 
         # Loop through the iterators
         offset = 0
@@ -46,6 +75,7 @@ def run_iter_event_loop(alive_event, event_queue, consumer_queue=None):
             except (TypeError, StopIteration):
                 iter_events.pop(i)
                 offset -= 1
+                mark_task_done(event_queue)
                 continue
             except Exception as err:
                 new_event.error = err

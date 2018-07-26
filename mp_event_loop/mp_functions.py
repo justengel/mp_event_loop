@@ -127,8 +127,10 @@ def run_event_loop(alive_event, event_queue, consumer_queue=None):
     for _ in LoopQueueSize(alive_event, event_queue):  # Iterate until a stop case then iterate the queue.qsize
         try:
             event = event_queue.get(timeout=QUEUE_TIMEOUT)
-            process_event(event, consumer_queue=consumer_queue)
-            mark_task_done(event_queue)
+            try:
+                process_event(event, consumer_queue=consumer_queue)
+            finally:  # Don't want the queue join to wait forever.
+                mark_task_done(event_queue)
         except Empty:
             pass
 
@@ -146,11 +148,12 @@ def run_consumer_loop(alive_event, consumer_queue, process_output):
     for _ in LoopQueueSize(alive_event, consumer_queue):
         try:
             event = consumer_queue.get(timeout=QUEUE_TIMEOUT)
-            if isinstance(event, Event):
-                # Process the output
-                process_output(event)
-
-            mark_task_done(consumer_queue)
+            try:
+                if isinstance(event, Event):
+                    # Process the output
+                    process_output(event)
+            finally:  # Don't want the queue join to wait forever.
+                mark_task_done(consumer_queue)
         except Empty:
             pass
 
