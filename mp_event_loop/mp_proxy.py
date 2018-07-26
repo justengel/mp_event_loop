@@ -147,6 +147,10 @@ class Proxy(object):
             if proxy_output_handler not in self.__loop__.output_handlers:
                 self.__loop__.insert_output_handler(0, proxy_output_handler)
 
+            # Automate starting the loop
+            if not self.__loop__.is_running():
+                self.__loop__.start()
+
             # Cache the object which should create the mp object if not created yet.
             self.__loop__.cache_object(self, has_output=True, event_key=self.__proxy_id__)
 
