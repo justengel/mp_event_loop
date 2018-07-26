@@ -444,11 +444,15 @@ mp_event_loop.EventLoop.consumer_loop_class = threading.Thread
 
 ### Pickling Problems
 My goal was to extend this library to work with async/await. Unfortunately, coroutines and generators cannot be 
-pickled. I created an async_event_loop.AsyncEventLoop just in case this becomes possible in the future. 
+pickled. 
 
-In addition to this generators cannot be pickled. I wanted to create another event loop where function with the yield
-statement would allow other Events to run. While generators cannot be pickled, it is possible to create a class with
- _\_iter_\_ and _\_next_\_ methods which can be pickled. I created an event loop (iter_event_loop.IterEventLoop)
-which will collect iterators and interleave iterators. After _\_next_\_ is called a different iterator will execute 
-adding more concurrency. This only makes it so long running iterators do not take up all of the processing time and 
-lets other iterator events run in between iterations.
+Initially the async/await event loop failed because generators cannot be pickled. I wanted to create another event 
+loop where function with the yield statement would allow other Events to run. While generators cannot be pickled, 
+it is possible to create a class with  _\_iter_\_ and _\_next_\_ methods which can be pickled. I created an event 
+loop (iter_event_loop.IterEventLoop) which will collect iterators and interleave iterators. After _\_next_\_ is called 
+a different iterator will execute adding more concurrency. This only makes it so long running iterators do not take 
+up all of the processing time and lets other iterator events run in between iterations.
+
+I was able to get async/await to work in multiprocessing. I used the same technique that I used for caching which was
+to register the async functions in a class dictionary and pickle the registered name. At unpickling the registered name
+is used to retrieve the async function and run it in the other process.
