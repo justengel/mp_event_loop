@@ -32,10 +32,10 @@ if __name__ == "__main__":
 
     setup(
         name="mp_event_loop",
-        version="1.4.6",
+        version="1.4.7",
         description="Library for long running multiprocessing event loops.",
         url="https://github.com/justengel/mp_event_loop",
-        download_url="https://github.com/justengel/mp_event_loop/archive/v1.4.6.tar.gz",
+        download_url="https://github.com/justengel/mp_event_loop/archive/v1.4.7.tar.gz",
 
         keywords=["multiprocessing", "event", "loop", "event loop", "process", 'async', 'await'],
 

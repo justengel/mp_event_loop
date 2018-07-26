@@ -203,10 +203,10 @@ class Proxy(object):
             if proxy:
                 if item in self.GETTERS:
                     def getter_func(*args, **kwargs):
-                        return self.__proxy__.get(item, None)
+                        return proxy.get(item, None)
                     return getter_func
-                elif item in proxy:
-                    return self.__proxy__.get(item, None)
+                elif item in self.PROPERTIES or item in proxy:
+                    return proxy.get(item, None)
 
                 # Check if function should be called in a different process
                 elif not item.startswith('__') and not item.endswith('__'):
@@ -262,8 +262,8 @@ class Proxy(object):
             state['GETTERS'] = self.GETTERS
         else:
             # May be the best way to sync values? or use event?
-            state['PROPERTIES'] = [(name, getattr(self.__object__, name, None)) for name in self.PROPERTIES]
-            state['GETTERS'] = [(name, _get_getter_value(getattr(self.__object__, name, None))) for name in self.GETTERS]
+            state['PROPERTIES'] = {name: getattr(self.__object__, name, None) for name in self.PROPERTIES}
+            state['GETTERS'] = {name: _get_getter_value(getattr(self.__object__, name, None)) for name in self.GETTERS}
 
         return state
 
@@ -297,8 +297,11 @@ class Proxy(object):
 
             self.__object__ = proxy
         else:
-            self.__proxy__ = proxy
-
             # Re-sync proxy attributes when this object is return to the main process
-            for item in state.get('PROPERTIES', []) + state.get("GETTERS", []):
-                self.__proxy__[item[0]] = item[1]
+            for key, val in state.get('PROPERTIES', {}).items():
+                proxy[key] = val
+
+            for key, val in state.get('GETTERS', {}).items():
+                proxy[key] = val
+
+            self.__proxy__ = proxy
