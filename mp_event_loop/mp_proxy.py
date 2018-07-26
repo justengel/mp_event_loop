@@ -272,8 +272,8 @@ class Proxy(object):
         self.__cache_id__ = state['cache_id']
         self.__loop_id__ = state['loop_id']
         self.__proxy_id__ = state['proxy_id']
-        self.__args__ = None
-        self.__kwargs__ = None
+        self.__args__ = tuple()
+        self.__kwargs__ = {}
         self.__proxy__ = None
         self.__object__ = None
 
