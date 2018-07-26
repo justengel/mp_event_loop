@@ -66,7 +66,8 @@ GLOBAL_NAME = 'Global Event Loop'
 __loop__ = None
 
 
-def get_event_loop(output_handlers=None, event_queue=None, consumer_queue=None, name=None, has_results=True):
+def get_event_loop(output_handlers=None, event_queue=None, consumer_queue=None, initialize_process=None, name=None,
+                   has_results=True):
     """Return the global event loop. If it does not exist create it. It will still need to be started or used as a
     context manager using the `with` statement.
 
@@ -74,6 +75,8 @@ def get_event_loop(output_handlers=None, event_queue=None, consumer_queue=None, 
         output_handlers (list/tuple/callable)[None]: Function or list of funcs that process executed events with results.
         event_queue (Queue)[None]: Custom event queue for the event loop.
         consumer_queue (Queue)[None]: Custom consumer queue for the consumer process.
+        initialize_process (function)[None]: Function to create and show widgets returning a dict of widgets and
+            variable names to save for use.
         name (str)['main']: Event loop name. This name is passed to the event process and consumer process.
         has_results (bool)[True]: Should this event loop create a consumer process to run executed events
             through process_output.
@@ -84,7 +87,8 @@ def get_event_loop(output_handlers=None, event_queue=None, consumer_queue=None, 
     global __loop__
     if __loop__ is None:
         __loop__ = DefaultEventLoop(name=name, event_queue=event_queue, consumer_queue=consumer_queue,
-                                    output_handlers=output_handlers, has_results=has_results)
+                                    output_handlers=output_handlers, initialize_process=initialize_process,
+                                    has_results=has_results)
 
     return __loop__
 
