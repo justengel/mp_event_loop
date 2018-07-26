@@ -240,7 +240,7 @@ class EventLoop(object):
         self.alive_event.set()
         self.event_process = self.event_loop_class(name="EventLoop-" + self.name, target=self.run_event_loop,
                                                    args=(self.alive_event, self.event_queue, self.consumer_queue))
-        self.event_process.daemon = False
+        self.event_process.daemon = True
         self.event_process.start()
 
     def start_consumer_loop(self):
@@ -249,7 +249,7 @@ class EventLoop(object):
                                                          target=self.run_consumer_loop,
                                                          args=(self.alive_event, self.consumer_queue,
                                                                self.process_output))
-        self.consumer_process.daemon = False
+        self.consumer_process.daemon = True
         self.consumer_process.start()
 
     def run(self, events=None, output_handlers=None):
