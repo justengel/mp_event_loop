@@ -223,7 +223,7 @@ class EventLoop(object):
 
     def start(self):
         """Start running the separate process which runs an event loop."""
-        self.stop()
+        self.close()
 
         # Create the separate Process
         self.start_event_loop()
@@ -233,7 +233,7 @@ class EventLoop(object):
             self.start_consumer_loop()
 
         self._needs_to_close = True
-        atexit.register(self.stop)
+        atexit.register(self.close)
 
     def start_event_loop(self):
         """Start running the event loop."""
@@ -292,9 +292,7 @@ class EventLoop(object):
             output_handlers (list/tuple/callable): Function or list of functions to add as an output handler.
         """
         self.run(events=events, output_handlers=output_handlers)
-
-        self.wait()
-        self.stop()
+        self.close()
 
     def wait(self):
         """Wait for the event queue and consumer queue to finish processing."""
@@ -316,14 +314,6 @@ class EventLoop(object):
         Warning:
             This will also stop the logging
         """
-        if not self._needs_to_close:
-            return
-        try:
-            self._needs_to_close = False
-            atexit.unregister(self.stop)
-        except:
-            pass
-
         # If has_results clear and join the consumer queue and process
         kwargs = {}
         if self.has_results:
@@ -336,6 +326,15 @@ class EventLoop(object):
 
     def close(self):
         """Close the event loop."""
+        if not self._needs_to_close:
+            return
+        try:
+            self._needs_to_close = False
+            atexit.unregister(self.close)
+        except:
+            pass
+
+        self.wait()
         self.stop()
 
     def __del__(self):
@@ -365,8 +364,7 @@ class EventLoop(object):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.wait()
-        self.stop()
+        self.close()
 
         if exc_type is not None:
             return False
