@@ -3,7 +3,7 @@ import threading
 
 import multiprocessing as mp
 
-from .events import Event, CacheEvent, CacheObjectEvent
+from .events import Event, CacheEvent, CacheObjectEvent, SaveVarEvent, VarEvent
 from .mp_functions import print_exception, stop_event_loop, run_event_loop, run_consumer_loop
 
 
@@ -27,13 +27,16 @@ class EventLoop(object):
     run_event_loop = staticmethod(run_event_loop)
     run_consumer_loop = staticmethod(run_consumer_loop)
 
-    def __init__(self, output_handlers=None, event_queue=None, consumer_queue=None, name='main', has_results=True):
+    def __init__(self, output_handlers=None, event_queue=None, consumer_queue=None, initialize_process=None,
+                 name='main', has_results=True):
         """Create the event loop.
 
         Args:
             output_handlers (list/tuple/callable)[None]: Function or list of funcs that executed events with results.
             event_queue (Queue)[None]: Custom event queue for the event loop.
             consumer_queue (Queue)[None]: Custom consumer queue for the consumer process.
+            initialize_process (function)[None]: Function to create and show widgets returning a dict of widgets and
+                variable names to save for use.
             name (str)['main']: Event loop name. This name is passed to the event process and consumer process.
             has_results (bool)[True]: Should this event loop create a consumer process to run executed events
                 through process_output.
@@ -57,6 +60,7 @@ class EventLoop(object):
         self.consumer_queue = consumer_queue
         self.event_process = None
         self.consumer_process = None  # Thread to handle results
+        self.initialize_process = initialize_process
 
         self.cache = {}
         self.output_handlers = [hndlr for hndlr in output_handlers]
@@ -202,6 +206,82 @@ class EventLoop(object):
         """Return if the object is in the cache."""
         return CacheEvent.is_object_registered(obj, cache=self.cache)
 
+    def save_variables(self, create_func, *args, event_key=None, re_register=False, **kwargs):
+        """
+
+        Args:
+            create_func (function/method/callable): Callable that creates variables and returns a dictionary of
+                variable name, object paris.
+            *args (tuple): Arguments to pass into the target function.
+            event_key (str)[None]: Key to identify the event or output result.
+            re_register (bool)[False]: Forcibly register this object in the other process.
+            **kwargs (dict): Keyword arguments to pass into the target function.
+            args (tuple)[None]: Keyword args argument.
+            kwargs (dict)[None]: Keyword kwargs argument.
+        """
+        args = kwargs.pop('args', args)
+        kwargs = kwargs.pop('kwargs', kwargs)
+
+        # Make sure cache is not a kwargs
+        kwargs.pop('cache', None)
+
+        if isinstance(create_func, CacheEvent):
+            event = create_func
+        elif isinstance(create_func, Event):
+            old_event = create_func
+            obj = old_event.target
+            event = SaveVarEvent(obj, has_output=False, event_key=event_key,
+                                 cache=self.cache, re_register=re_register)
+            event.args = old_event.args
+            event.kwargs = old_event.kwargs
+            event.event_key = old_event.event_key
+        else:
+            event = SaveVarEvent(create_func, *args, **kwargs, has_output=False, event_key=event_key,
+                                 cache=self.cache, re_register=re_register)
+
+        return self.add_event(event)
+
+    def add_var_event(self, var_name, target, *args, has_output=None, event_key=None, re_register=False, **kwargs):
+        """Add an event to be run in a separate process.
+
+        Args:
+            var_name (str): Variable name.
+            target (str/function/method/callable): Function or string object and function name.
+            *args (tuple): Arguments to pass into the target function.
+            has_output (bool) [False]: If True save the executed event and put it on the consumer/output queue.
+            event_key (str)[None]: Key to identify the event or output result.
+            re_register (bool)[False]: Forcibly register this object in the other process.
+            **kwargs (dict): Keyword arguments to pass into the target function.
+            args (tuple)[None]: Keyword args argument.
+            kwargs (dict)[None]: Keyword kwargs argument.
+        """
+        args = kwargs.pop('args', args)
+        kwargs = kwargs.pop('kwargs', kwargs)
+
+        # Make sure cache is not a kwargs
+        kwargs.pop('cache', None)
+
+        if isinstance(target, CacheEvent):
+            event = target
+        elif isinstance(target, Event):
+            args = args or target.args
+            kwargs = kwargs or target.kwargs
+            has_output = has_output or target.has_output
+            event_key = event_key or target.event_key
+            target = target.target
+
+            if has_output is None:
+                has_output = True
+            event = VarEvent(var_name, target, *args, **kwargs, has_output=has_output, event_key=event_key,
+                             cache=self.cache, re_register=re_register)
+        else:
+            if has_output is None:
+                has_output = True
+            event = VarEvent(var_name, target, *args, **kwargs, has_output=has_output, event_key=event_key,
+                             cache=self.cache, re_register=re_register)
+
+        return self.add_event(event)
+
     # ========== Process Management ==========
     def is_running(self):
         """Return if the event loop is running."""
@@ -239,7 +319,8 @@ class EventLoop(object):
         """Start running the event loop."""
         self.alive_event.set()
         self.event_process = self.event_loop_class(name="EventLoop-" + self.name, target=self.run_event_loop,
-                                                   args=(self.alive_event, self.event_queue, self.consumer_queue))
+                                                   args=(self.alive_event, self.event_queue, self.consumer_queue),
+                                                   kwargs={'initialize_process': self.initialize_process})
         self.event_process.daemon = True
         self.event_process.start()
 

@@ -3,7 +3,7 @@ import sys
 import traceback
 from queue import Empty
 
-from .events import Event
+from .events import Event, CacheEvent
 
 try:
     import psutil
@@ -115,14 +115,23 @@ def process_event(event, consumer_queue=None):
             consumer_queue.put(event)
 
 
-def run_event_loop(alive_event, event_queue, consumer_queue=None):
+def run_event_loop(alive_event, event_queue, consumer_queue=None, initialize_process=None):
     """Run the event loop.
 
     Args:
         alive_event (multiprocessing.Event): Event to signal when to end the thread
         event_queue (multiprocessing.Queue/multiprocessing.JoinableQueue): Queue to get and run events with
         consumer_queue (multiprocessing.Queue/multiprocessing.JoinableQueue)[None]: Output queue of events.
+        initialize_process (function)[None]: Function run at the start of the event loop. It should return a dictionary
+            of variable name, object pairs.
     """
+    # Create widgets and store the widgets
+    cache = CacheEvent.CACHE  # This is the cache for this process
+    if callable(initialize_process):
+        variables = initialize_process()
+        for key, val in variables.items():
+            cache[key] = val
+
     # ===== Run the logging event loop =====
     for _ in LoopQueueSize(alive_event, event_queue):  # Iterate until a stop case then iterate the queue.qsize
         try:

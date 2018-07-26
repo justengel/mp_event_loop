@@ -31,7 +31,7 @@ class LoopIterQueueSize(LoopQueueSize):
         return "Continue"
 
 
-def run_iter_event_loop(alive_event, event_queue, consumer_queue=None):
+def run_iter_event_loop(alive_event, event_queue, consumer_queue=None, initialize_process=None):
     """Run the event loop.
 
     Args:
@@ -39,7 +39,16 @@ def run_iter_event_loop(alive_event, event_queue, consumer_queue=None):
         event_queue (multiprocessing.Queue/multiprocessing.JoinableQueue): Queue to get and run events with
         consumer_queue (multiprocessing.Queue/multiprocessing.JoinableQueue): Queue to pass results from the process
             to the thread.
+        initialize_process (function)[None]: Function run at the start of the event loop. It should return a dictionary
+            of variable name, object pairs.
     """
+    # Create widgets and store the widgets
+    cache = CacheEvent.CACHE  # This is the cache for this process
+    if callable(initialize_process):
+        variables = initialize_process()
+        for key, val in variables.items():
+            cache[key] = val
+
     iter_events = []
     # ===== Run the logging event loop =====
     for _ in LoopIterQueueSize(alive_event, event_queue, iter_events):  # Iterate until not alive and queue is empty

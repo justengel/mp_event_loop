@@ -10,13 +10,17 @@ class Pool(EventLoop):
 
     EVENT_LOOP = EventLoop
 
-    def __init__(self, processes=1, output_handlers=None, event_queue=None, consumer_queue=None, name='main', has_results=True):
+    def __init__(self, processes=1, output_handlers=None, event_queue=None, consumer_queue=None,
+                 initialize_process=None, name='main', has_results=True):
         """Create the event loop.
 
         Args:
+            processes (int)[1]: How many processes to create.
             output_handlers (list/tuple/callable)[None]: Function or list of funcs that executed events with results.
             event_queue (Queue)[None]: Custom event queue for the event loop.
             consumer_queue (Queue)[None]: Custom consumer queue for the consumer process.
+            initialize_process (function)[None]: Function to create and show widgets returning a dict of widgets and
+                variable names to save for use.
             name (str)['main']: Event loop name. This name is passed to the event process and consumer process.
             has_results (bool)[True]: Should this event loop create a consumer process to run executed events
                 through process_output.
@@ -24,7 +28,7 @@ class Pool(EventLoop):
         self.processes = processes
         self.loops = []
         super().__init__(output_handlers=output_handlers, event_queue=event_queue, consumer_queue=consumer_queue,
-                         name=name, has_results=has_results)
+                         initialize_process=initialize_process, name=name, has_results=has_results)
 
     def start_event_loop(self):
         """Start running the event loop."""
@@ -34,7 +38,8 @@ class Pool(EventLoop):
         # Create multiple processes
         for i in range(self.processes):
             el = self.EVENT_LOOP(name=self.name + '_' + str(i), has_results=False,
-                                 event_queue=self.event_queue, consumer_queue=self.consumer_queue)
+                                 event_queue=self.event_queue, consumer_queue=self.consumer_queue,
+                                 initialize_process=self.initialize_process)
             el.alive_event = self.alive_event
             el.start_event_loop()
             self.loops.append(el)
@@ -52,9 +57,6 @@ class Pool(EventLoop):
         Warning:
             This will also stop the logging
         """
-        if not self._needs_to_close:
-            return
-
         super().stop()
 
         # Stop all of the event loops
