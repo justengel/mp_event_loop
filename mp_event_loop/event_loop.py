@@ -426,18 +426,20 @@ class EventLoop(object):
 
     def __getstate__(self):
         return {'name': self.name, 'has_results': self.has_results,
-                'output_handlers': self.output_handlers, 'process_output': self.process_output,
-                }
+                'output_handlers': self.output_handlers, 'process_output': self.process_output}
 
     def __setstate__(self, state):
+        # Variables that are not saved
         self._needs_to_close = False
+        self.event_process = None
+        self.consumer_process = None
+        self.event_queue = None
+        self.consumer_queue = None
+        self.cache = {}
+
+        # Saved variables
         self.name = state.get('name', '')
         self.has_results = state.get('has_results', None)
-
-        self.output_handlers = state.get('output_handlers', [])
-        self.process_output = state.get('process_output', None)
-        if self.process_output is None:
-            self.process_output = self.__class__.process_output.__get__(self, self.__class__)
 
     def __enter__(self):
         if not self.is_running():

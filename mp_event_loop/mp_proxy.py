@@ -126,11 +126,11 @@ class Proxy(object):
     __loop__ = None
 
     # Required properties
-    PROXY_CLASS = object
+    PROXY_CLASS = dict
     PROPERTIES = []
     GETTERS = []
 
-    def create_mp_object(self, args, kwargs):
+    def create_mp_object(self, *args, **kwargs):
         """Take in known properties and getters and return a single object to exist in the separate process and be
         referenced by the proxy.
 
@@ -248,18 +248,18 @@ class Proxy(object):
         is_target_other_process = self.is_mp_proxy()
 
         # State values to return
-        state = {'cache_id': self.__cache_id__,
-                 'loop_id': self.__loop_id__,
-                 'proxy_id': self.__proxy_id__,
+        state = {'__cache_id__': self.__cache_id__,
+                 '__loop_id__': self.__loop_id__,
+                 '__proxy_id__': self.__proxy_id__,
+                 '__args__': self.__args__,
+                 '__kwargs__': self.__kwargs__,
                  'is_other_process': is_target_other_process,
-                 'args': self.__args__,
-                 'kwargs': self.__kwargs__,
                  }
 
         if is_target_other_process:
             # May need to set the initial PROPERTIES and GETTERS value
-            state['PROPERTIES'] = self.PROPERTIES
-            state['GETTERS'] = self.GETTERS
+            state['PROPERTIES'] = {name: None for name in self.PROPERTIES}
+            state['GETTERS'] = {name: None for name in self.GETTERS}
         else:
             # May be the best way to sync values? or use event?
             state['PROPERTIES'] = {name: getattr(self.__object__, name, None) for name in self.PROPERTIES}
@@ -269,9 +269,9 @@ class Proxy(object):
 
     def __setstate__(self, state):
         # Get the loop and cache
-        self.__cache_id__ = state['cache_id']
-        self.__loop_id__ = state['loop_id']
-        self.__proxy_id__ = state['proxy_id']
+        self.__cache_id__ = state['__cache_id__']
+        self.__loop_id__ = state['__loop_id__']
+        self.__proxy_id__ = state['__proxy_id__']
         self.__args__ = tuple()
         self.__kwargs__ = {}
         self.__proxy__ = None
@@ -283,15 +283,15 @@ class Proxy(object):
 
         # Get if this item is a proxy or real object in a different process
         proxy = self.__cache__.get(self.__proxy_id__, None)
-        if state['is_other_process']:
+        if state.get('is_other_process', False):
             if not proxy:
                 # ===== Create the new object (One Time!) =====
                 # Set the properties and getters once
-                self.PROPERTIES = state.get('PROPERTIES', [])
-                self.GETTERS = state.get("GETTERS", [])
+                self.PROPERTIES = list(state.get('PROPERTIES', {}))
+                self.GETTERS = list(state.get("GETTERS", {}))
 
                 # Create the new object in this different process
-                proxy = self.create_mp_object(state['args'], state['kwargs'])
+                proxy = self.create_mp_object(*state['__args__'], **state['__kwargs__'])
                 CacheEvent.register_object(proxy, cache=self.__cache__)
                 self.__cache__[self.__proxy_id__] = proxy
 
