@@ -13,8 +13,8 @@ async def yield_range(value, name):
         yield name + " " + str(i)
 
 
-AsyncManager.register('print_test', print_test)
-AsyncManager.register('yield_range', yield_range)
+# AsyncManager.register('print_test', print_test)
+# AsyncManager.register('yield_range', yield_range)
 
 
 def test_async_event_loop():

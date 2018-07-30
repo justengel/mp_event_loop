@@ -254,6 +254,7 @@ class Proxy(object):
                  '__args__': self.__args__,
                  '__kwargs__': self.__kwargs__,
                  'is_other_process': is_target_other_process,
+                 'SLOTS': self.SLOTS,
                  }
 
         if is_target_other_process:
@@ -269,6 +270,7 @@ class Proxy(object):
 
     def __setstate__(self, state):
         # Get the loop and cache
+        self.SLOTS = state['SLOTS']
         self.__cache_id__ = state['__cache_id__']
         self.__loop_id__ = state['__loop_id__']
         self.__proxy_id__ = state['__proxy_id__']

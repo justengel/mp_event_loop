@@ -104,8 +104,9 @@ async def yield_range(value, name):
         yield name + " " + str(i)
 
 
-AsyncManager.register('print_test', print_test)
-AsyncManager.register('yield_range', yield_range)
+# Do not need to register anymore
+# AsyncManager.register('print_test', print_test)
+# AsyncManager.register('yield_range', yield_range)
 
 
 if __name__ == '__main__':

@@ -1,3 +1,4 @@
+import sys
 import copy
 import inspect
 import types
@@ -15,22 +16,41 @@ class AsyncManager(object):
     COROUTINES = {}
 
     @staticmethod
-    def register(name, obj):
+    def register(name, obj=None):
+        """Register the object"""
+        if obj is None:
+            obj = name
+            name = '.'.join((obj.__module__, obj.__name__))
         AsyncManager.COROUTINES[name] = obj
 
     @staticmethod
     def get(name):
+        """Get the object from the given name."""
+        if name not in AsyncManager.COROUTINES:
+            try:
+                module, name = name.split('.', 1)
+                return getattr(sys.modules[module], name)
+            except AttributeError:
+                pass
         return AsyncManager.COROUTINES[name]
+
 
     @staticmethod
     def get_name(obj):
+        """Get the registered name or sys.modules name."""
         if isinstance(obj, str):
             return obj
-        for key, value in AsyncManager.COROUTINES.items():
-            if value == obj:
-                return key
-        raise ValueError('Coroutine not registered! A Coroutine must be registered in the module level scope! '
-                         'Coroutines are not picklable and cannot be sent to another process.')
+
+        try:
+            idx = tuple(AsyncManager.COROUTINES.values()).index(obj)
+            return tuple(AsyncManager.COROUTINES.keys())[idx]
+        except ValueError:
+            pass
+
+        if obj.__module__ not in sys.modules:
+            raise ValueError('Coroutine not registered! A Coroutine must be registered in the module level scope! '
+                             'Coroutines are not picklable and cannot be sent to another process.')
+        return '.'.join((obj.__module__, obj.__name__))
 
 
 async def get_value_from_async(store, coro):
