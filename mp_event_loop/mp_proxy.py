@@ -189,13 +189,19 @@ class Proxy(object):
         self.__cache__ = CacheEvent.get_or_register_object(self.__cache_id__, cache)
 
         # Set the main variables
-        self.__args__ = args
-        self.__kwargs__ = kwargs
+        self.__args__ = tuple()
+        self.__kwargs__ = {}
         self.__proxy__ = {None: None}
         self.__proxy_id__ = CacheEvent.register_object(self.__proxy__, cache=self.__cache__)
         self.__object__ = None
 
+        # Initialize and create the object in a separate process
+        self.initialize(*args, **kwargs)
         self.sync_mp_object()
+
+    def initialize(self, *args, **kwargs):
+        self.__args__ = args
+        self.__kwargs__ = kwargs
 
     def __getattr__(self, item):
         try:
