@@ -15,7 +15,7 @@ except ImportError as err:
 
 
 __all__ = ['print_exception', 'is_parent_process_alive', 'mark_task_done', 'LoopQueueSize',
-           'stop_event_loop', 'process_event', 'run_event_loop', 'run_consumer_loop',
+           'stop_event_loop', 'run_loop', 'process_event', 'run_event_loop', 'run_consumer_loop',
            'QUEUE_TIMEOUT']
 
 
@@ -98,6 +98,37 @@ def stop_event_loop(alive_event, event_process=None, consumer_process=None):
         consumer_process.join()
     except (AttributeError, Exception):
         pass
+
+
+def run_loop(process_queue_data, alive_event, event_queue, consumer_queue=None, initialize_process=None):
+    """Run the event loop.
+
+    Args:
+        process_queue_data (function/callable): Function to process the data that comes off of the event queue.
+            This function should take in 'consumer_queue' and 'variables' kwargs.
+        alive_event (multiprocessing.Event): Event to signal when to end the thread
+        event_queue (multiprocessing.Queue/multiprocessing.JoinableQueue): Queue to get and run events with
+        consumer_queue (multiprocessing.Queue/multiprocessing.JoinableQueue)[None]: Output queue of events.
+        initialize_process (function)[None]: Function run at the start of the event loop. It should return a dictionary
+            of variable name, object pairs.
+    """
+    # Create widgets and store the widgets
+    variables = {}
+    if callable(initialize_process):
+        variables = initialize_process()
+
+    # ===== Run the logging event loop =====
+    for _ in LoopQueueSize(alive_event, event_queue):  # Iterate until a stop case then iterate the queue.qsize
+        try:
+            event = event_queue.get(timeout=QUEUE_TIMEOUT)
+            try:
+                process_queue_data(event, consumer_queue=consumer_queue, variables=variables)
+            finally:  # Don't want the queue join to wait forever.
+                mark_task_done(event_queue)
+        except Empty:
+            pass
+
+    alive_event.clear()
 
 
 def process_event(event, consumer_queue=None):
