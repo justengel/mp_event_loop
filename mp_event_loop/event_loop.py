@@ -124,8 +124,8 @@ class EventLoop(object):
         kwargs = kwargs.pop('kwargs', kwargs)
 
         if cache:
-            return self.add_cache_event(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                                        re_register=re_register)
+            return self.add_cache_event(target, *args, has_output=has_output, event_key=event_key,
+                                        re_register=re_register, **kwargs)
 
         elif isinstance(target, Event):
             event = target
@@ -133,7 +133,7 @@ class EventLoop(object):
         else:
             if has_output is None:
                 has_output = True
-            event = Event(target, *args, **kwargs, has_output=has_output, event_key=event_key)
+            event = Event(target, *args, has_output=has_output, event_key=event_key, **kwargs)
 
         self.event_queue.put(event)
 
@@ -167,13 +167,13 @@ class EventLoop(object):
 
             if has_output is None:
                 has_output = True
-            event = CacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                               cache=self.cache, re_register=re_register)
+            event = CacheEvent(target, *args, has_output=has_output, event_key=event_key, cache=self.cache,
+                               re_register=re_register, **kwargs)
         else:
             if has_output is None:
                 has_output = True
-            event = CacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                               cache=self.cache, re_register=re_register)
+            event = CacheEvent(target, *args, has_output=has_output, event_key=event_key, cache=self.cache,
+                               re_register=re_register, **kwargs)
 
         self.event_queue.put(event)
 
@@ -236,8 +236,8 @@ class EventLoop(object):
             event.kwargs = old_event.kwargs
             event.event_key = old_event.event_key
         else:
-            event = SaveVarEvent(create_func, *args, **kwargs, has_output=False, event_key=event_key,
-                                 cache=self.cache, re_register=re_register)
+            event = SaveVarEvent(create_func, *args, has_output=False, event_key=event_key, cache=self.cache,
+                                 re_register=re_register, **kwargs)
 
         return self.add_event(event)
 
@@ -272,13 +272,13 @@ class EventLoop(object):
 
             if has_output is None:
                 has_output = True
-            event = VarEvent(var_name, target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                             cache=self.cache, re_register=re_register)
+            event = VarEvent(var_name, target, *args, has_output=has_output, event_key=event_key, cache=self.cache,
+                             re_register=re_register, **kwargs)
         else:
             if has_output is None:
                 has_output = True
-            event = VarEvent(var_name, target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                             cache=self.cache, re_register=re_register)
+            event = VarEvent(var_name, target, *args, has_output=has_output, event_key=event_key, cache=self.cache,
+                             re_register=re_register, **kwargs)
 
         return self.add_event(event)
 

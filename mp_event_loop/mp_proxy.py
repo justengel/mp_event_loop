@@ -59,7 +59,7 @@ class ProxyEvent(Event):
         self.method_name = method_name
 
         # Initialize
-        super().__init__(obj, *args, **kwargs, has_output=has_output, event_key=event_key)
+        super().__init__(obj, *args, has_output=has_output, event_key=event_key, **kwargs)
 
     def exec_(self):
         """Get the command and run it"""

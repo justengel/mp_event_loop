@@ -72,8 +72,8 @@ class VarEventLoop(EventLoop):
         else:
             if has_output is None:
                 has_output = True
-            event = VarEvent(var_name, method_name, *args, **kwargs, has_output=has_output, event_key=event_key,
-                             cache=self.cache, re_register=re_register)
+            event = VarEvent(var_name, method_name, *args, has_output=has_output, event_key=event_key,
+                             cache=self.cache, re_register=re_register, **kwargs)
 
         return self.add_cache_event(event)
 

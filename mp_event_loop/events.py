@@ -157,7 +157,7 @@ class CacheEvent(Event):
         kwargs = {key: self._key_cached_object(val, cache=self.cache) for key, val in kwargs.items()}
 
         # Initialize
-        super().__init__(target, *args, **kwargs, has_output=has_output, event_key=event_key)
+        super().__init__(target, *args, has_output=has_output, event_key=event_key, **kwargs)
 
     def _cache_object_with_register(self, obj, re_register=False, cache=None):
         """Check if the object is cached and register it to be cached.

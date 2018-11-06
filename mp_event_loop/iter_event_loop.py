@@ -149,8 +149,8 @@ class IterEventLoop(EventLoop):
         kwargs = kwargs.pop('kwargs', kwargs)
 
         if cache:
-            return self.add_cache_event(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                                        re_register=re_register)
+            return self.add_cache_event(target, *args, has_output=has_output, event_key=event_key,
+                                        re_register=re_register, **kwargs)
 
         elif isinstance(target, Event):
             event = target
@@ -158,7 +158,7 @@ class IterEventLoop(EventLoop):
         else:
             if has_output is None:
                 has_output = True
-            event = IterEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key)
+            event = IterEvent(target, *args, has_output=has_output, event_key=event_key, **kwargs)
 
         self.event_queue.put(event)
 
@@ -192,12 +192,12 @@ class IterEventLoop(EventLoop):
 
             if has_output is None:
                 has_output = True
-            event = IterCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                                   cache=self.cache, re_register=re_register)
+            event = IterCacheEvent(target, *args, has_output=has_output, event_key=event_key, cache=self.cache,
+                                   re_register=re_register, **kwargs)
         else:
             if has_output is None:
                 has_output = True
-            event = IterCacheEvent(target, *args, **kwargs, has_output=has_output, event_key=event_key,
-                                   cache=self.cache, re_register=re_register)
+            event = IterCacheEvent(target, *args, has_output=has_output, event_key=event_key, cache=self.cache,
+                                   re_register=re_register, **kwargs)
 
         self.event_queue.put(event)
