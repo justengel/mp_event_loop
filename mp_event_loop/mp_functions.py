@@ -65,12 +65,16 @@ class LoopQueueSize(object):
     def __next__(self):
         if self.countdown > 0:
             self.countdown -= 1
+        elif self.countdown == 0:
+            self.countdown = -1
+            raise StopIteration
         else:
             should_iter = self.alive_event.is_set() and is_parent_process_alive()
             if not should_iter:
                 self.countdown = self.queue.qsize()
-        if self.countdown == 0:
-            raise StopIteration
+                if self.countdown == 0:
+                    self.countdown = -1
+                    raise StopIteration
         return "Continue"
 
 
